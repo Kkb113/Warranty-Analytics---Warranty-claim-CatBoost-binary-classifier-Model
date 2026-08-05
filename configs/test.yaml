@@ -1,0 +1,6 @@
+environment: test
+log_level: WARNING
+data_dir: data/test
+artifact_dir: artifacts/test
+report_dir: reports/test
+log_dir: logs/test

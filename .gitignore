@@ -1,0 +1,76 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.so
+.Python
+.venv/
+venv/
+env/
+ENV/
+*.egg-info/
+build/
+dist/
+
+# Local environment and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+credentials.json
+secrets/
+
+# Test, coverage, and type-check caches
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# IDE and operating-system files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Generated project data and outputs. Keep documentation files only.
+data/**
+!data/README.md
+artifacts/**
+!artifacts/README.md
+reports/**
+!reports/README.md
+logs/**
+!logs/README.md
+
+# Notebook and temporary files
+.ipynb_checkpoints/
+*.tmp
+*.temp
+*.bak
+*.dump
+*.bacpac
+*.sqlite
+*.sqlite3
+*.db
+
+# Local database exports and generated archives
+*.parquet
+*.feather
+*.pickle
+*.pkl
+*.joblib
+*.zip
+*.tar
+*.tar.gz
+\docs
+warranty_analytics_schema_document.docx
+README.md

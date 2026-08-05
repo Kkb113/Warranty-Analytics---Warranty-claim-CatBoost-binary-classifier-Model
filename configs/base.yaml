@@ -1,0 +1,8 @@
+project_name: Truck-Warranty High-Cost Claim Prediction
+environment: development
+random_seed: 42
+log_level: INFO
+data_dir: data
+artifact_dir: artifacts
+report_dir: reports
+log_dir: logs
