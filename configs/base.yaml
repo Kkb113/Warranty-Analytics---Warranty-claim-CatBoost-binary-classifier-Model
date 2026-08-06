@@ -6,3 +6,16 @@ data_dir: data
 artifact_dir: artifacts
 report_dir: reports
 log_dir: logs
+
+database:
+  database: warranty_analytics
+  port: 1433
+  auth_mode: trusted
+  driver: ODBC Driver 18 for SQL Server
+  encrypt: true
+  trust_server_certificate: false
+  application_intent: ReadOnly
+  connection_timeout_seconds: 15
+  query_timeout_seconds: 30
+  application_name: warranty_analytics_model
+  run_db_tests: false

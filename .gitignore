@@ -71,6 +71,5 @@ logs/**
 *.zip
 *.tar
 *.tar.gz
-\docs
-warranty_analytics_schema_document.docx
 README.md
+docs

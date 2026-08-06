@@ -1,0 +1,3769 @@
+contract_version: 1.0.0
+database:
+  name: warranty_analytics
+  platform: sql_server
+source:
+  document: warranty_analytics_schema_document.docx
+  sha256: 13b749388c5c1ab94b6507832b3d0e6b37c9a7b016aec8cb71c57186498b7628
+  extraction_date: '2026-08-05'
+  views_documented: 0
+  sequences_documented: 0
+summary:
+  included_tables: 16
+  included_columns: 209
+  documented_foreign_keys: 22
+  estimated_rows: 392352
+excluded_tables:
+- dbo.ml_region_terrain_warranty_risk_dataset
+- dbo.ml_truck_failure_risk_dataset
+- dbo.ml_truck_region_terrain_failure_risk_dataset
+tables:
+- name: dbo.dim_component
+  schema: dbo
+  table: dim_component
+  estimated_rows: 350
+  column_count: 10
+  primary_key:
+    name: PK_dim_component
+    columns:
+    - component_key
+    system_named: false
+  foreign_keys:
+  - name: FK_dim_component_dim_supplier_supplier_key
+    referenced_table: dbo.dim_supplier
+    parent_columns:
+    - supplier_key
+    referenced_columns:
+    - supplier_key
+    on_delete: no_action
+    on_update: no_action
+    trusted: true
+  indexes:
+  - name: PK_dim_component
+    index_type: clustered
+    unique: true
+    key_columns:
+    - component_key
+    included_columns: []
+    disabled: false
+    filter_definition: null
+  properties:
+    storage_classification: NON_TEMPORAL_TABLE
+    temporal: false
+    memory_optimized: false
+    file_table: false
+  columns:
+  - ordinal: 1
+    name: component_key
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 2
+    name: component_id
+    sql_type:
+      base_type: nvarchar
+      max_length: 50
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 3
+    name: component_name
+    sql_type:
+      base_type: nvarchar
+      max_length: 200
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 4
+    name: component_system
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 5
+    name: component_category
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 6
+    name: supplier_key
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 7
+    name: standard_life_miles
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 8
+    name: standard_life_months
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 9
+    name: is_safety_critical
+    sql_type:
+      base_type: bit
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 10
+    name: unit_cost
+    sql_type:
+      base_type: decimal
+      max_length: null
+      precision: 12
+      scale: 2
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+- name: dbo.dim_customer
+  schema: dbo
+  table: dim_customer
+  estimated_rows: 500
+  column_count: 9
+  primary_key:
+    name: PK_dim_customer
+    columns:
+    - customer_key
+    system_named: false
+  foreign_keys:
+  - name: FK_dim_customer_dim_location_location_key
+    referenced_table: dbo.dim_location
+    parent_columns:
+    - location_key
+    referenced_columns:
+    - location_key
+    on_delete: no_action
+    on_update: no_action
+    trusted: true
+  indexes:
+  - name: PK_dim_customer
+    index_type: clustered
+    unique: true
+    key_columns:
+    - customer_key
+    included_columns: []
+    disabled: false
+    filter_definition: null
+  properties:
+    storage_classification: NON_TEMPORAL_TABLE
+    temporal: false
+    memory_optimized: false
+    file_table: false
+  columns:
+  - ordinal: 1
+    name: customer_key
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 2
+    name: customer_id
+    sql_type:
+      base_type: nvarchar
+      max_length: 50
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 3
+    name: customer_name
+    sql_type:
+      base_type: nvarchar
+      max_length: 200
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 4
+    name: customer_type
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 5
+    name: industry
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 6
+    name: fleet_size
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 7
+    name: location_key
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 8
+    name: contract_type
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 9
+    name: account_priority
+    sql_type:
+      base_type: nvarchar
+      max_length: 50
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+- name: dbo.dim_date
+  schema: dbo
+  table: dim_date
+  estimated_rows: 1827
+  column_count: 12
+  primary_key:
+    name: PK_dim_date
+    columns:
+    - date_key
+    system_named: false
+  foreign_keys: []
+  indexes:
+  - name: PK_dim_date
+    index_type: clustered
+    unique: true
+    key_columns:
+    - date_key
+    included_columns: []
+    disabled: false
+    filter_definition: null
+  properties:
+    storage_classification: NON_TEMPORAL_TABLE
+    temporal: false
+    memory_optimized: false
+    file_table: false
+  columns:
+  - ordinal: 1
+    name: date_key
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 2
+    name: full_date
+    sql_type:
+      base_type: date
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 3
+    name: day_number
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 4
+    name: day_name
+    sql_type:
+      base_type: nvarchar
+      max_length: 20
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 5
+    name: week_number
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 6
+    name: month_number
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 7
+    name: month_name
+    sql_type:
+      base_type: nvarchar
+      max_length: 20
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 8
+    name: quarter_number
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 9
+    name: year_number
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 10
+    name: fiscal_month
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 11
+    name: fiscal_quarter
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 12
+    name: fiscal_year
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+- name: dbo.dim_failure_code
+  schema: dbo
+  table: dim_failure_code
+  estimated_rows: 120
+  column_count: 8
+  primary_key:
+    name: PK_dim_failure_code
+    columns:
+    - failure_code_key
+    system_named: false
+  foreign_keys: []
+  indexes:
+  - name: PK_dim_failure_code
+    index_type: clustered
+    unique: true
+    key_columns:
+    - failure_code_key
+    included_columns: []
+    disabled: false
+    filter_definition: null
+  properties:
+    storage_classification: NON_TEMPORAL_TABLE
+    temporal: false
+    memory_optimized: false
+    file_table: false
+  columns:
+  - ordinal: 1
+    name: failure_code_key
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 2
+    name: failure_code
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 3
+    name: failure_description
+    sql_type:
+      base_type: nvarchar
+      max_length: 500
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 4
+    name: failure_system
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 5
+    name: failure_category
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 6
+    name: severity_level
+    sql_type:
+      base_type: nvarchar
+      max_length: 50
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 7
+    name: safety_related_flag
+    sql_type:
+      base_type: bit
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 8
+    name: recall_related_flag
+    sql_type:
+      base_type: bit
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+- name: dbo.dim_location
+  schema: dbo
+  table: dim_location
+  estimated_rows: 75
+  column_count: 9
+  primary_key:
+    name: PK_dim_location
+    columns:
+    - location_key
+    system_named: false
+  foreign_keys: []
+  indexes:
+  - name: PK_dim_location
+    index_type: clustered
+    unique: true
+    key_columns:
+    - location_key
+    included_columns: []
+    disabled: false
+    filter_definition: null
+  properties:
+    storage_classification: NON_TEMPORAL_TABLE
+    temporal: false
+    memory_optimized: false
+    file_table: false
+  columns:
+  - ordinal: 1
+    name: location_key
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 2
+    name: country
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 3
+    name: state_province
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 4
+    name: city
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 5
+    name: region
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 6
+    name: climate_zone
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 7
+    name: terrain_type
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 8
+    name: latitude
+    sql_type:
+      base_type: decimal
+      max_length: null
+      precision: 10
+      scale: 6
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: true
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 9
+    name: longitude
+    sql_type:
+      base_type: decimal
+      max_length: null
+      precision: 10
+      scale: 6
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: true
+    identity: false
+    computed: false
+    default: null
+    collation: null
+- name: dbo.dim_service_center
+  schema: dbo
+  table: dim_service_center
+  estimated_rows: 100
+  column_count: 9
+  primary_key:
+    name: PK_dim_service_center
+    columns:
+    - service_center_key
+    system_named: false
+  foreign_keys:
+  - name: FK_dim_service_center_dim_location_location_key
+    referenced_table: dbo.dim_location
+    parent_columns:
+    - location_key
+    referenced_columns:
+    - location_key
+    on_delete: no_action
+    on_update: no_action
+    trusted: true
+  indexes:
+  - name: PK_dim_service_center
+    index_type: clustered
+    unique: true
+    key_columns:
+    - service_center_key
+    included_columns: []
+    disabled: false
+    filter_definition: null
+  properties:
+    storage_classification: NON_TEMPORAL_TABLE
+    temporal: false
+    memory_optimized: false
+    file_table: false
+  columns:
+  - ordinal: 1
+    name: service_center_key
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 2
+    name: service_center_id
+    sql_type:
+      base_type: nvarchar
+      max_length: 50
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 3
+    name: service_center_name
+    sql_type:
+      base_type: nvarchar
+      max_length: 200
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 4
+    name: location_key
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 5
+    name: dealer_group
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 6
+    name: certified_level
+    sql_type:
+      base_type: nvarchar
+      max_length: 50
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 7
+    name: avg_labor_rate
+    sql_type:
+      base_type: decimal
+      max_length: null
+      precision: 10
+      scale: 2
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 8
+    name: service_capacity
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 9
+    name: active_flag
+    sql_type:
+      base_type: bit
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+- name: dbo.dim_supplier
+  schema: dbo
+  table: dim_supplier
+  estimated_rows: 100
+  column_count: 9
+  primary_key:
+    name: PK_dim_supplier
+    columns:
+    - supplier_key
+    system_named: false
+  foreign_keys: []
+  indexes:
+  - name: PK_dim_supplier
+    index_type: clustered
+    unique: true
+    key_columns:
+    - supplier_key
+    included_columns: []
+    disabled: false
+    filter_definition: null
+  properties:
+    storage_classification: NON_TEMPORAL_TABLE
+    temporal: false
+    memory_optimized: false
+    file_table: false
+  columns:
+  - ordinal: 1
+    name: supplier_key
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 2
+    name: supplier_id
+    sql_type:
+      base_type: nvarchar
+      max_length: 50
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 3
+    name: supplier_name
+    sql_type:
+      base_type: nvarchar
+      max_length: 200
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 4
+    name: supplier_region
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 5
+    name: supplier_country
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 6
+    name: supplier_tier
+    sql_type:
+      base_type: nvarchar
+      max_length: 50
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 7
+    name: quality_rating
+    sql_type:
+      base_type: decimal
+      max_length: null
+      precision: 5
+      scale: 2
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 8
+    name: contract_start_date
+    sql_type:
+      base_type: date
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 9
+    name: preferred_supplier_flag
+    sql_type:
+      base_type: bit
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+- name: dbo.dim_truck
+  schema: dbo
+  table: dim_truck
+  estimated_rows: 5000
+  column_count: 17
+  primary_key:
+    name: PK_dim_truck
+    columns:
+    - truck_key
+    system_named: false
+  foreign_keys:
+  - name: FK_dim_truck_dim_customer_customer_key
+    referenced_table: dbo.dim_customer
+    parent_columns:
+    - customer_key
+    referenced_columns:
+    - customer_key
+    on_delete: no_action
+    on_update: no_action
+    trusted: true
+  - name: FK_dim_truck_dim_truck_model_truck_model_key
+    referenced_table: dbo.dim_truck_model
+    parent_columns:
+    - truck_model_key
+    referenced_columns:
+    - truck_model_key
+    on_delete: no_action
+    on_update: no_action
+    trusted: true
+  - name: FK_dim_truck_dim_warranty_policy_warranty_policy_key
+    referenced_table: dbo.dim_warranty_policy
+    parent_columns:
+    - warranty_policy_key
+    referenced_columns:
+    - warranty_policy_key
+    on_delete: no_action
+    on_update: no_action
+    trusted: true
+  indexes:
+  - name: PK_dim_truck
+    index_type: clustered
+    unique: true
+    key_columns:
+    - truck_key
+    included_columns: []
+    disabled: false
+    filter_definition: null
+  properties:
+    storage_classification: NON_TEMPORAL_TABLE
+    temporal: false
+    memory_optimized: false
+    file_table: false
+  columns:
+  - ordinal: 1
+    name: truck_key
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 2
+    name: vin
+    sql_type:
+      base_type: nvarchar
+      max_length: 50
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 3
+    name: truck_model_key
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 4
+    name: customer_key
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 5
+    name: manufacturing_plant
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 6
+    name: assembly_line
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 7
+    name: production_batch_id
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 8
+    name: build_date
+    sql_type:
+      base_type: date
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 9
+    name: delivery_date
+    sql_type:
+      base_type: date
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 10
+    name: in_service_date
+    sql_type:
+      base_type: date
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 11
+    name: engine_serial_no
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 12
+    name: transmission_serial_no
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 13
+    name: axle_configuration
+    sql_type:
+      base_type: nvarchar
+      max_length: 50
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 14
+    name: fuel_type
+    sql_type:
+      base_type: nvarchar
+      max_length: 50
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 15
+    name: emission_standard
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 16
+    name: warranty_policy_key
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 17
+    name: current_status
+    sql_type:
+      base_type: nvarchar
+      max_length: 50
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+- name: dbo.dim_truck_model
+  schema: dbo
+  table: dim_truck_model
+  estimated_rows: 20
+  column_count: 9
+  primary_key:
+    name: PK_dim_truck_model
+    columns:
+    - truck_model_key
+    system_named: false
+  foreign_keys: []
+  indexes:
+  - name: PK_dim_truck_model
+    index_type: clustered
+    unique: true
+    key_columns:
+    - truck_model_key
+    included_columns: []
+    disabled: false
+    filter_definition: null
+  properties:
+    storage_classification: NON_TEMPORAL_TABLE
+    temporal: false
+    memory_optimized: false
+    file_table: false
+  columns:
+  - ordinal: 1
+    name: truck_model_key
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 2
+    name: brand
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 3
+    name: model_name
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 4
+    name: model_year
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 5
+    name: segment
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 6
+    name: application_type
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 7
+    name: cab_type
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 8
+    name: engine_platform
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 9
+    name: gvwr_class
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+- name: dbo.dim_warranty_policy
+  schema: dbo
+  table: dim_warranty_policy
+  estimated_rows: 10
+  column_count: 10
+  primary_key:
+    name: PK_dim_warranty_policy
+    columns:
+    - warranty_policy_key
+    system_named: false
+  foreign_keys: []
+  indexes:
+  - name: PK_dim_warranty_policy
+    index_type: clustered
+    unique: true
+    key_columns:
+    - warranty_policy_key
+    included_columns: []
+    disabled: false
+    filter_definition: null
+  properties:
+    storage_classification: NON_TEMPORAL_TABLE
+    temporal: false
+    memory_optimized: false
+    file_table: false
+  columns:
+  - ordinal: 1
+    name: warranty_policy_key
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 2
+    name: policy_id
+    sql_type:
+      base_type: nvarchar
+      max_length: 50
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 3
+    name: policy_name
+    sql_type:
+      base_type: nvarchar
+      max_length: 200
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 4
+    name: coverage_months
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 5
+    name: coverage_miles
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 6
+    name: coverage_engine_hours
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 7
+    name: deductible_amount
+    sql_type:
+      base_type: decimal
+      max_length: null
+      precision: 12
+      scale: 2
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 8
+    name: coverage_type
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 9
+    name: effective_start_date
+    sql_type:
+      base_type: date
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 10
+    name: effective_end_date
+    sql_type:
+      base_type: date
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: true
+    identity: false
+    computed: false
+    default: null
+    collation: null
+- name: dbo.fact_component_installation
+  schema: dbo
+  table: fact_component_installation
+  estimated_rows: 90000
+  column_count: 14
+  primary_key:
+    name: PK_fact_component_installation
+    columns:
+    - installation_key
+    system_named: false
+  foreign_keys:
+  - name: FK_fact_component_installation_dim_component_component_key
+    referenced_table: dbo.dim_component
+    parent_columns:
+    - component_key
+    referenced_columns:
+    - component_key
+    on_delete: no_action
+    on_update: no_action
+    trusted: true
+  - name: FK_fact_component_installation_dim_supplier_supplier_key
+    referenced_table: dbo.dim_supplier
+    parent_columns:
+    - supplier_key
+    referenced_columns:
+    - supplier_key
+    on_delete: no_action
+    on_update: no_action
+    trusted: true
+  - name: FK_fact_component_installation_dim_truck_truck_key
+    referenced_table: dbo.dim_truck
+    parent_columns:
+    - truck_key
+    referenced_columns:
+    - truck_key
+    on_delete: no_action
+    on_update: no_action
+    trusted: true
+  indexes:
+  - name: PK_fact_component_installation
+    index_type: clustered
+    unique: true
+    key_columns:
+    - installation_key
+    included_columns: []
+    disabled: false
+    filter_definition: null
+  properties:
+    storage_classification: NON_TEMPORAL_TABLE
+    temporal: false
+    memory_optimized: false
+    file_table: false
+  columns:
+  - ordinal: 1
+    name: installation_key
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 2
+    name: truck_key
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 3
+    name: component_key
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 4
+    name: supplier_key
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 5
+    name: component_serial_no
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 6
+    name: component_lot_no
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 7
+    name: installed_date
+    sql_type:
+      base_type: date
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 8
+    name: production_batch_id
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 9
+    name: station_id
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 10
+    name: inspector_id
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 11
+    name: quality_check_status
+    sql_type:
+      base_type: nvarchar
+      max_length: 50
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 12
+    name: rework_flag
+    sql_type:
+      base_type: bit
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 13
+    name: torque_value
+    sql_type:
+      base_type: decimal
+      max_length: null
+      precision: 10
+      scale: 2
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: true
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 14
+    name: inspection_score
+    sql_type:
+      base_type: decimal
+      max_length: null
+      precision: 5
+      scale: 2
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+- name: dbo.fact_maintenance_event
+  schema: dbo
+  table: fact_maintenance_event
+  estimated_rows: 42000
+  column_count: 12
+  primary_key:
+    name: PK_fact_maintenance_event
+    columns:
+    - maintenance_event_key
+    system_named: false
+  foreign_keys:
+  - name: FK_fact_maintenance_event_dim_service_center_service_center_key
+    referenced_table: dbo.dim_service_center
+    parent_columns:
+    - service_center_key
+    referenced_columns:
+    - service_center_key
+    on_delete: no_action
+    on_update: no_action
+    trusted: true
+  - name: FK_fact_maintenance_event_dim_truck_truck_key
+    referenced_table: dbo.dim_truck
+    parent_columns:
+    - truck_key
+    referenced_columns:
+    - truck_key
+    on_delete: no_action
+    on_update: no_action
+    trusted: true
+  indexes:
+  - name: PK_fact_maintenance_event
+    index_type: clustered
+    unique: true
+    key_columns:
+    - maintenance_event_key
+    included_columns: []
+    disabled: false
+    filter_definition: null
+  properties:
+    storage_classification: NON_TEMPORAL_TABLE
+    temporal: false
+    memory_optimized: false
+    file_table: false
+  columns:
+  - ordinal: 1
+    name: maintenance_event_key
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 2
+    name: truck_key
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 3
+    name: service_center_key
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 4
+    name: maintenance_date
+    sql_type:
+      base_type: date
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 5
+    name: odometer_miles
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 6
+    name: engine_hours
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 7
+    name: maintenance_type
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 8
+    name: scheduled_flag
+    sql_type:
+      base_type: bit
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 9
+    name: completed_on_time_flag
+    sql_type:
+      base_type: bit
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 10
+    name: overdue_days
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 11
+    name: maintenance_cost
+    sql_type:
+      base_type: decimal
+      max_length: null
+      precision: 12
+      scale: 2
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 12
+    name: technician_notes
+    sql_type:
+      base_type: nvarchar
+      max_length: 1000
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: true
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+- name: dbo.fact_repair_line
+  schema: dbo
+  table: fact_repair_line
+  estimated_rows: 29750
+  column_count: 14
+  primary_key:
+    name: PK_fact_repair_line
+    columns:
+    - repair_line_key
+    system_named: false
+  foreign_keys:
+  - name: FK_fact_repair_line_dim_component_component_key
+    referenced_table: dbo.dim_component
+    parent_columns:
+    - component_key
+    referenced_columns:
+    - component_key
+    on_delete: no_action
+    on_update: no_action
+    trusted: true
+  - name: FK_fact_repair_line_fact_service_event_service_event_key
+    referenced_table: dbo.fact_service_event
+    parent_columns:
+    - service_event_key
+    referenced_columns:
+    - service_event_key
+    on_delete: no_action
+    on_update: no_action
+    trusted: true
+  - name: FK_fact_repair_line_fact_warranty_claim_warranty_claim_key
+    referenced_table: dbo.fact_warranty_claim
+    parent_columns:
+    - warranty_claim_key
+    referenced_columns:
+    - warranty_claim_key
+    on_delete: no_action
+    on_update: no_action
+    trusted: true
+  indexes:
+  - name: PK_fact_repair_line
+    index_type: clustered
+    unique: true
+    key_columns:
+    - repair_line_key
+    included_columns: []
+    disabled: false
+    filter_definition: null
+  properties:
+    storage_classification: NON_TEMPORAL_TABLE
+    temporal: false
+    memory_optimized: false
+    file_table: false
+  columns:
+  - ordinal: 1
+    name: repair_line_key
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 2
+    name: warranty_claim_key
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 3
+    name: service_event_key
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 4
+    name: component_key
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 5
+    name: line_type
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 6
+    name: repair_action
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 7
+    name: part_no
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: true
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 8
+    name: part_quantity
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 9
+    name: part_unit_cost
+    sql_type:
+      base_type: decimal
+      max_length: null
+      precision: 12
+      scale: 2
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 10
+    name: labor_hours
+    sql_type:
+      base_type: decimal
+      max_length: null
+      precision: 10
+      scale: 2
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 11
+    name: labor_rate
+    sql_type:
+      base_type: decimal
+      max_length: null
+      precision: 10
+      scale: 2
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 12
+    name: line_cost
+    sql_type:
+      base_type: decimal
+      max_length: null
+      precision: 12
+      scale: 2
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 13
+    name: technician_id
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: true
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 14
+    name: repair_notes
+    sql_type:
+      base_type: nvarchar
+      max_length: 1000
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: true
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+- name: dbo.fact_service_event
+  schema: dbo
+  table: fact_service_event
+  estimated_rows: 34000
+  column_count: 14
+  primary_key:
+    name: PK_fact_service_event
+    columns:
+    - service_event_key
+    system_named: false
+  foreign_keys:
+  - name: FK_fact_service_event_dim_service_center_service_center_key
+    referenced_table: dbo.dim_service_center
+    parent_columns:
+    - service_center_key
+    referenced_columns:
+    - service_center_key
+    on_delete: no_action
+    on_update: no_action
+    trusted: true
+  - name: FK_fact_service_event_dim_truck_truck_key
+    referenced_table: dbo.dim_truck
+    parent_columns:
+    - truck_key
+    referenced_columns:
+    - truck_key
+    on_delete: no_action
+    on_update: no_action
+    trusted: true
+  indexes:
+  - name: PK_fact_service_event
+    index_type: clustered
+    unique: true
+    key_columns:
+    - service_event_key
+    included_columns: []
+    disabled: false
+    filter_definition: null
+  properties:
+    storage_classification: NON_TEMPORAL_TABLE
+    temporal: false
+    memory_optimized: false
+    file_table: false
+  columns:
+  - ordinal: 1
+    name: service_event_key
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 2
+    name: service_event_id
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 3
+    name: truck_key
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 4
+    name: service_center_key
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 5
+    name: service_date
+    sql_type:
+      base_type: date
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 6
+    name: odometer_miles
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 7
+    name: engine_hours
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 8
+    name: service_type
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 9
+    name: complaint_description
+    sql_type:
+      base_type: nvarchar
+      max_length: 1000
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: true
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 10
+    name: diagnostic_summary
+    sql_type:
+      base_type: nvarchar
+      max_length: 1000
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: true
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 11
+    name: downtime_hours
+    sql_type:
+      base_type: decimal
+      max_length: null
+      precision: 10
+      scale: 2
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 12
+    name: roadside_assistance_flag
+    sql_type:
+      base_type: bit
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 13
+    name: repeat_visit_flag
+    sql_type:
+      base_type: bit
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 14
+    name: service_status
+    sql_type:
+      base_type: nvarchar
+      max_length: 50
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+- name: dbo.fact_telemetry_monthly
+  schema: dbo
+  table: fact_telemetry_monthly
+  estimated_rows: 180000
+  column_count: 19
+  primary_key:
+    name: PK_fact_telemetry_monthly
+    columns:
+    - telemetry_month_key
+    system_named: false
+  foreign_keys:
+  - name: FK_fact_telemetry_monthly_dim_truck_truck_key
+    referenced_table: dbo.dim_truck
+    parent_columns:
+    - truck_key
+    referenced_columns:
+    - truck_key
+    on_delete: no_action
+    on_update: no_action
+    trusted: true
+  indexes:
+  - name: PK_fact_telemetry_monthly
+    index_type: clustered
+    unique: true
+    key_columns:
+    - telemetry_month_key
+    included_columns: []
+    disabled: false
+    filter_definition: null
+  properties:
+    storage_classification: NON_TEMPORAL_TABLE
+    temporal: false
+    memory_optimized: false
+    file_table: false
+  columns:
+  - ordinal: 1
+    name: telemetry_month_key
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 2
+    name: truck_key
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 3
+    name: month_start_date
+    sql_type:
+      base_type: date
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 4
+    name: mileage_month
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 5
+    name: total_odometer_miles
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 6
+    name: engine_hours_month
+    sql_type:
+      base_type: decimal
+      max_length: null
+      precision: 10
+      scale: 2
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 7
+    name: idle_hours_month
+    sql_type:
+      base_type: decimal
+      max_length: null
+      precision: 10
+      scale: 2
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 8
+    name: avg_engine_temp
+    sql_type:
+      base_type: decimal
+      max_length: null
+      precision: 10
+      scale: 2
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 9
+    name: max_engine_temp
+    sql_type:
+      base_type: decimal
+      max_length: null
+      precision: 10
+      scale: 2
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 10
+    name: avg_oil_pressure
+    sql_type:
+      base_type: decimal
+      max_length: null
+      precision: 10
+      scale: 2
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 11
+    name: low_oil_pressure_events
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 12
+    name: brake_air_pressure_alerts
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 13
+    name: battery_voltage_alerts
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 14
+    name: fault_code_count
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 15
+    name: harsh_braking_events
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 16
+    name: avg_payload_weight
+    sql_type:
+      base_type: decimal
+      max_length: null
+      precision: 12
+      scale: 2
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 17
+    name: fuel_efficiency_mpg
+    sql_type:
+      base_type: decimal
+      max_length: null
+      precision: 10
+      scale: 2
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: true
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 18
+    name: route_severity_score
+    sql_type:
+      base_type: decimal
+      max_length: null
+      precision: 5
+      scale: 2
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 19
+    name: maintenance_compliance_score
+    sql_type:
+      base_type: decimal
+      max_length: null
+      precision: 5
+      scale: 2
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+- name: dbo.fact_warranty_claim
+  schema: dbo
+  table: fact_warranty_claim
+  estimated_rows: 8500
+  column_count: 34
+  primary_key:
+    name: PK_fact_warranty_claim
+    columns:
+    - warranty_claim_key
+    system_named: false
+  foreign_keys:
+  - name: FK_fact_warranty_claim_dim_component_causal_component_key
+    referenced_table: dbo.dim_component
+    parent_columns:
+    - causal_component_key
+    referenced_columns:
+    - component_key
+    on_delete: no_action
+    on_update: no_action
+    trusted: true
+  - name: FK_fact_warranty_claim_dim_failure_code_failure_code_key
+    referenced_table: dbo.dim_failure_code
+    parent_columns:
+    - failure_code_key
+    referenced_columns:
+    - failure_code_key
+    on_delete: no_action
+    on_update: no_action
+    trusted: true
+  - name: FK_fact_warranty_claim_dim_service_center_service_center_key
+    referenced_table: dbo.dim_service_center
+    parent_columns:
+    - service_center_key
+    referenced_columns:
+    - service_center_key
+    on_delete: no_action
+    on_update: no_action
+    trusted: true
+  - name: FK_fact_warranty_claim_dim_truck_truck_key
+    referenced_table: dbo.dim_truck
+    parent_columns:
+    - truck_key
+    referenced_columns:
+    - truck_key
+    on_delete: no_action
+    on_update: no_action
+    trusted: true
+  - name: FK_fact_warranty_claim_fact_service_event_service_event_key
+    referenced_table: dbo.fact_service_event
+    parent_columns:
+    - service_event_key
+    referenced_columns:
+    - service_event_key
+    on_delete: no_action
+    on_update: no_action
+    trusted: true
+  indexes:
+  - name: PK_fact_warranty_claim
+    index_type: clustered
+    unique: true
+    key_columns:
+    - warranty_claim_key
+    included_columns: []
+    disabled: false
+    filter_definition: null
+  properties:
+    storage_classification: NON_TEMPORAL_TABLE
+    temporal: false
+    memory_optimized: false
+    file_table: false
+  columns:
+  - ordinal: 1
+    name: warranty_claim_key
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 2
+    name: claim_id
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 3
+    name: service_event_key
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 4
+    name: truck_key
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 5
+    name: failure_code_key
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 6
+    name: causal_component_key
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 7
+    name: service_center_key
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 8
+    name: claim_date
+    sql_type:
+      base_type: date
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 9
+    name: failure_date
+    sql_type:
+      base_type: date
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 10
+    name: repair_start_date
+    sql_type:
+      base_type: date
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 11
+    name: repair_end_date
+    sql_type:
+      base_type: date
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 12
+    name: odometer_miles_at_failure
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 13
+    name: engine_hours_at_failure
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 14
+    name: months_in_service
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 15
+    name: warranty_coverage_status
+    sql_type:
+      base_type: nvarchar
+      max_length: 50
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 16
+    name: claim_status
+    sql_type:
+      base_type: nvarchar
+      max_length: 50
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 17
+    name: claim_type
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 18
+    name: causal_part_no
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 19
+    name: failure_mode
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 20
+    name: root_cause_category
+    sql_type:
+      base_type: nvarchar
+      max_length: 100
+      precision: null
+      scale: null
+      unicode: true
+      length_unit: characters
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: SQL_Latin1_General_CP1_CI_AS
+  - ordinal: 21
+    name: labor_cost
+    sql_type:
+      base_type: decimal
+      max_length: null
+      precision: 12
+      scale: 2
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 22
+    name: parts_cost
+    sql_type:
+      base_type: decimal
+      max_length: null
+      precision: 12
+      scale: 2
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 23
+    name: diagnostic_cost
+    sql_type:
+      base_type: decimal
+      max_length: null
+      precision: 12
+      scale: 2
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 24
+    name: towing_cost
+    sql_type:
+      base_type: decimal
+      max_length: null
+      precision: 12
+      scale: 2
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 25
+    name: other_cost
+    sql_type:
+      base_type: decimal
+      max_length: null
+      precision: 12
+      scale: 2
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 26
+    name: total_claim_cost
+    sql_type:
+      base_type: decimal
+      max_length: null
+      precision: 12
+      scale: 2
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 27
+    name: approved_amount
+    sql_type:
+      base_type: decimal
+      max_length: null
+      precision: 12
+      scale: 2
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 28
+    name: rejected_amount
+    sql_type:
+      base_type: decimal
+      max_length: null
+      precision: 12
+      scale: 2
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 29
+    name: customer_paid_amount
+    sql_type:
+      base_type: decimal
+      max_length: null
+      precision: 12
+      scale: 2
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 30
+    name: repeat_claim_flag
+    sql_type:
+      base_type: bit
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 31
+    name: days_to_failure
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 32
+    name: days_to_repair
+    sql_type:
+      base_type: int
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 33
+    name: high_cost_claim_flag
+    sql_type:
+      base_type: bit
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null
+  - ordinal: 34
+    name: potential_recall_flag
+    sql_type:
+      base_type: bit
+      max_length: null
+      precision: null
+      scale: null
+      unicode: false
+      length_unit: null
+      is_max: false
+    nullable: false
+    identity: false
+    computed: false
+    default: null
+    collation: null

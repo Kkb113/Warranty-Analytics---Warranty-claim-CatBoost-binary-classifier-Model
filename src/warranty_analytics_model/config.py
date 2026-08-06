@@ -42,10 +42,19 @@ _MODEL_ENV_FIELDS: Final[dict[str, str]] = {
 
 _DATABASE_ENV_FIELDS: Final[dict[str, str]] = {
     "WARRANTY_DB_SERVER": "server",
+    "WARRANTY_DB_PORT": "port",
     "WARRANTY_DB_DATABASE": "database",
+    "WARRANTY_DB_AUTH_MODE": "auth_mode",
     "WARRANTY_DB_USERNAME": "username",
     "WARRANTY_DB_PASSWORD": "password",
     "WARRANTY_DB_DRIVER": "driver",
+    "WARRANTY_DB_ENCRYPT": "encrypt",
+    "WARRANTY_DB_TRUST_SERVER_CERTIFICATE": "trust_server_certificate",
+    "WARRANTY_DB_APPLICATION_INTENT": "application_intent",
+    "WARRANTY_DB_CONNECTION_TIMEOUT_SECONDS": "connection_timeout_seconds",
+    "WARRANTY_DB_QUERY_TIMEOUT_SECONDS": "query_timeout_seconds",
+    "WARRANTY_DB_APPLICATION_NAME": "application_name",
+    "WARRANTY_RUN_DB_TESTS": "run_db_tests",
 }
 
 _SECRET_KEY_PARTS: Final[tuple[str, ...]] = (
@@ -62,15 +71,64 @@ class ConfigurationError(RuntimeError):
 
 
 class DatabaseSettings(BaseModel):
-    """Future database placeholders; Phase 1 does not connect to a database."""
+    """Typed SQL Server settings; connection validation is explicit and opt-in."""
 
     model_config = ConfigDict(extra="forbid")
 
     server: str | None = None
+    port: int = Field(default=1433, ge=1, le=65535)
     database: str = "warranty_analytics"
+    auth_mode: Literal["trusted", "sql_password"] = "trusted"
     username: str | None = None
     password: SecretStr | None = None
-    driver: str | None = None
+    driver: str = "ODBC Driver 18 for SQL Server"
+    encrypt: bool = True
+    trust_server_certificate: bool = False
+    application_intent: Literal["ReadOnly"] = "ReadOnly"
+    connection_timeout_seconds: int = Field(default=15, ge=1, le=300)
+    query_timeout_seconds: int = Field(default=30, ge=1, le=3600)
+    application_name: str = "warranty_analytics_model"
+    run_db_tests: bool = False
+
+    def validate_for_connection(self) -> None:
+        """Validate values that are required only by live database commands."""
+
+        from .database.exceptions import DatabaseConfigurationError
+
+        if not self.server or not self.server.strip():
+            raise DatabaseConfigurationError(
+                "WARRANTY_DB_SERVER is required for a live database command."
+            )
+        if not self.database.strip():
+            raise DatabaseConfigurationError("The database name must not be empty.")
+        if not self.driver.strip():
+            raise DatabaseConfigurationError("The ODBC driver name must not be empty.")
+        if self.auth_mode == "sql_password":
+            if not self.username or not self.username.strip():
+                raise DatabaseConfigurationError(
+                    "WARRANTY_DB_USERNAME is required when auth_mode is sql_password."
+                )
+            if self.password is None or not self.password.get_secret_value():
+                raise DatabaseConfigurationError(
+                    "WARRANTY_DB_PASSWORD is required when auth_mode is sql_password."
+                )
+
+    def safe_display(self) -> dict[str, Any]:
+        """Return non-secret connection diagnostics suitable for logs and CLI output."""
+
+        return {
+            "server": self.server,
+            "port": self.port,
+            "database": self.database,
+            "driver": self.driver,
+            "auth_mode": self.auth_mode,
+            "encrypt": self.encrypt,
+            "trust_server_certificate": self.trust_server_certificate,
+            "application_intent": self.application_intent,
+            "connection_timeout_seconds": self.connection_timeout_seconds,
+            "query_timeout_seconds": self.query_timeout_seconds,
+            "application_name": self.application_name,
+        }
 
 
 class Settings(BaseSettings):
