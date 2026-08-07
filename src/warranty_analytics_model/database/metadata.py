@@ -8,7 +8,7 @@ from typing import Any
 
 from sqlalchemy import Connection, text
 
-from ..config import DatabaseSettings
+from .config import DatabaseSettings
 from .connection import DatabaseConnection, load_sql_resource, validate_driver
 from .models import (
     ColumnSpec,
@@ -47,8 +47,16 @@ def _normalize_type(row: Mapping[str, Any]) -> SQLTypeSpec:
     return SQLTypeSpec(
         base_type=base_type,
         max_length=logical_length,
-        precision=int(row["precision"]) if row["precision"] is not None else None,
-        scale=int(row["scale"]) if row["scale"] is not None else None,
+        precision=(
+            int(row["precision"])
+            if base_type in {"decimal", "numeric"} and row["precision"] is not None
+            else None
+        ),
+        scale=(
+            int(row["scale"])
+            if base_type in {"decimal", "numeric"} and row["scale"] is not None
+            else None
+        ),
         unicode=base_type.startswith("n"),
         length_unit=("characters" if base_type not in {"binary", "varbinary"} else "bytes")
         if is_string

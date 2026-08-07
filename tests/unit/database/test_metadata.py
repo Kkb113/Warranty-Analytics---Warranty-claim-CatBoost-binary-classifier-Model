@@ -80,13 +80,6 @@ class _CatalogConnection:
         contract_table = self.contract.table_map.get(f"dbo.{table_name}")
         if "FROM sys.schemas AS s" in query and "TOP" not in query:
             return _Result([{"schema_name": "dbo"}, {"schema_name": "sys"}])
-        if "FROM sys.tables AS t" in query and "t.name AS table_name" in query:
-            names = [table.name for table in self.contract.tables]
-            names.extend(self.contract.excluded_tables)
-            names.append("dbo.extra_table")
-            return _Result(
-                [{"schema_name": name.split(".")[0], "table_name": name.split(".")[1]} for name in names]
-            )
         if "FROM sys.views AS v" in query:
             return _Result([{"schema_name": "dbo", "view_name": "documented_view"}])
         if "FROM sys.sequences AS seq" in query:
@@ -114,6 +107,16 @@ class _CatalogConnection:
                         "temporal_type_desc": "NON_TEMPORAL_TABLE",
                         "is_filetable": False,
                     }
+                ]
+            )
+        if "FROM sys.tables AS t" in query and "t.name AS table_name" in query:
+            names = [table.name for table in self.contract.tables]
+            names.extend(self.contract.excluded_tables)
+            names.append("dbo.extra_table")
+            return _Result(
+                [
+                    {"schema_name": name.split(".")[0], "table_name": name.split(".")[1]}
+                    for name in names
                 ]
             )
         assert contract_table is not None
@@ -237,6 +240,5 @@ def test_collect_schema_metadata_reads_only_catalog_and_excluded_names(
     assert live.sequences == ["dbo.documented_sequence"]
     assert all("SELECT *" not in query.upper() for query, _ in fake.queries)
     assert not any(
-        any(excluded in query for excluded in contract.excluded_tables)
-        for query, _ in fake.queries
+        any(excluded in query for excluded in contract.excluded_tables) for query, _ in fake.queries
     )

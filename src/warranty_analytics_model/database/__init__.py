@@ -1,5 +1,6 @@
 """Secure read-only data access and schema validation for Phase 2."""
 
+from .config import load_database_settings
 from .connection import (
     DatabaseConnection,
     available_odbc_drivers,
@@ -28,6 +29,7 @@ __all__ = [
     "contract_checksum",
     "diff_schema",
     "load_schema_contract",
+    "load_database_settings",
     "safe_connection_display",
     "validate_contract",
     "validate_driver",

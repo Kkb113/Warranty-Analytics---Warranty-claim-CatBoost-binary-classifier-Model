@@ -29,6 +29,29 @@ _VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 _SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 _STRING_TYPES = {"char", "varchar", "nchar", "nvarchar"}
 _DECIMAL_TYPES = {"decimal", "numeric"}
+_SUPPORTED_TYPES = {
+    "bigint",
+    "bit",
+    "char",
+    "date",
+    "datetime",
+    "datetime2",
+    "decimal",
+    "float",
+    "int",
+    "nchar",
+    "nvarchar",
+    "real",
+    "smallint",
+    "smalldatetime",
+    "smallmoney",
+    "time",
+    "tinyint",
+    "uniqueidentifier",
+    "varbinary",
+    "varchar",
+    "money",
+}
 
 
 def default_contract_path(project_root: Path | None = None) -> Path:
@@ -60,7 +83,9 @@ def _check_type_metadata(table: TableSpec, errors: list[str]) -> None:
     for column in table.columns:
         type_spec = column.sql_type
         base = type_spec.base_type
-        if base in _STRING_TYPES:
+        if base not in _SUPPORTED_TYPES:
+            errors.append(f"{table.name}.{column.name}: unsupported SQL type {base}")
+        elif base in _STRING_TYPES:
             if type_spec.is_max:
                 if type_spec.max_length is not None:
                     errors.append(
@@ -92,6 +117,10 @@ def _check_type_metadata(table: TableSpec, errors: list[str]) -> None:
             if type_spec.scale is not None or type_spec.length_unit is not None:
                 errors.append(
                     f"{table.name}.{column.name}: scalar type has incompatible scale metadata"
+                )
+            if type_spec.unicode or type_spec.is_max:
+                errors.append(
+                    f"{table.name}.{column.name}: scalar type has incompatible Unicode metadata"
                 )
 
 
@@ -204,7 +233,10 @@ def load_schema_contract(
 ) -> tuple[SchemaContract, str]:
     """Load, validate, and checksum the YAML contract without database access."""
 
-    contract_path = (path or default_contract_path(project_root)).resolve()
+    if path is not None and path.is_dir():
+        contract_path = (path / "contracts" / "warranty_analytics_schema_v1.yaml").resolve()
+    else:
+        contract_path = (path or default_contract_path(project_root)).resolve()
     if not contract_path.is_file():
         raise SchemaContractError(f"Schema contract is missing: {contract_path}")
     try:

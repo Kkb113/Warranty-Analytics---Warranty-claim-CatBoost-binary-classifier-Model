@@ -159,7 +159,9 @@ def test_database_check_rejects_wrong_database(monkeypatch: pytest.MonkeyPatch) 
         @contextmanager
         def connect(self):
             class WrongConnection(_FakeConnection):
-                def execute(self, statement: object, parameters: object | None = None) -> _FakeResult:
+                def execute(
+                    self, statement: object, parameters: object | None = None
+                ) -> _FakeResult:
                     result = super().execute(statement, parameters)
                     if "SERVERPROPERTY" in str(statement):
                         result.rows[0]["database_name"] = "other_database"

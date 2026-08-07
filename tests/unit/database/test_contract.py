@@ -36,12 +36,16 @@ def test_authoritative_contract_reconciles_source_metadata() -> None:
     assert contract.contract_version == "1.0.0"
     assert contract.database.name == "warranty_analytics"
     assert contract.source.document == "warranty_analytics_schema_document.docx"
-    assert contract.source.sha256 == "13b749388c5c1ab94b6507832b3d0e6b37c9a7b016aec8cb71c57186498b7628"
+    assert (
+        contract.source.sha256 == "13b749388c5c1ab94b6507832b3d0e6b37c9a7b016aec8cb71c57186498b7628"
+    )
     assert contract.summary.model_dump() == EXPECTED_SUMMARY
     assert set(contract.excluded_tables) == EXPECTED_EXCLUDED_TABLES
     assert contract.included_column_count == 209
     assert contract.foreign_key_count == 22
-    assert checksum == contract_checksum(REPOSITORY_ROOT / "contracts" / "warranty_analytics_schema_v1.yaml")
+    assert checksum == contract_checksum(
+        REPOSITORY_ROOT / "contracts" / "warranty_analytics_schema_v1.yaml"
+    )
     assert contract.table_map["dbo.fact_warranty_claim"].column_count == 34
 
 
@@ -68,7 +72,10 @@ def test_contract_captures_ordered_keys_types_and_provenance() -> None:
 @pytest.mark.parametrize(
     "mutator, message",
     [
-        (lambda contract: contract.model_copy(update={"contract_version": "bad"}), "semantic version"),
+        (
+            lambda contract: contract.model_copy(update={"contract_version": "bad"}),
+            "semantic version",
+        ),
         (
             lambda contract: contract.model_copy(
                 update={"summary": contract.summary.model_copy(update={"estimated_rows": 1})}
@@ -105,9 +112,13 @@ def test_contract_rejects_duplicate_tables_columns_and_ordinals() -> None:
         validate_contract(_replace_table(contract, bad_columns))
 
     bad_ordinals = first.columns[1].model_copy(update={"ordinal": 1})
-    ordinal_columns = [bad_ordinals if column.name == bad_ordinals.name else column for column in first.columns]
+    ordinal_columns = [
+        bad_ordinals if column.name == bad_ordinals.name else column for column in first.columns
+    ]
     with pytest.raises(SchemaContractError, match="ordinals"):
-        validate_contract(_replace_table(contract, first.model_copy(update={"columns": ordinal_columns})))
+        validate_contract(
+            _replace_table(contract, first.model_copy(update={"columns": ordinal_columns}))
+        )
 
 
 def test_contract_rejects_bad_primary_key_foreign_key_and_type_metadata() -> None:
@@ -121,7 +132,9 @@ def test_contract_rejects_bad_primary_key_foreign_key_and_type_metadata() -> Non
             _replace_table(
                 contract,
                 first.model_copy(
-                    update={"primary_key": first.primary_key.model_copy(update={"columns": ["missing"]})}
+                    update={
+                        "primary_key": first.primary_key.model_copy(update={"columns": ["missing"]})
+                    }
                 ),
             )
         )
@@ -136,13 +149,19 @@ def test_contract_rejects_bad_primary_key_foreign_key_and_type_metadata() -> Non
         trusted=True,
     )
     with pytest.raises(SchemaContractError, match="referenced table is unknown"):
-        validate_contract(_replace_table(contract, first.model_copy(update={"foreign_keys": [bad_fk]})))
+        validate_contract(
+            _replace_table(contract, first.model_copy(update={"foreign_keys": [bad_fk]}))
+        )
 
     bad_type = SQLTypeSpec(base_type="decimal", precision=None, scale=None)
     bad_column = first.columns[0].model_copy(update={"sql_type": bad_type})
-    bad_columns = [bad_column if column.name == bad_column.name else column for column in first.columns]
+    bad_columns = [
+        bad_column if column.name == bad_column.name else column for column in first.columns
+    ]
     with pytest.raises(SchemaContractError, match="decimal type requires"):
-        validate_contract(_replace_table(contract, first.model_copy(update={"columns": bad_columns})))
+        validate_contract(
+            _replace_table(contract, first.model_copy(update={"columns": bad_columns}))
+        )
 
 
 def test_contract_load_errors_are_safe(tmp_path: Path) -> None:

@@ -1,0 +1,93 @@
+# Architecture
+
+## Purpose and current boundary
+
+The repository is a configuration-driven Python package for future truck-warranty
+claim modeling. Phase 1 implements package, configuration, path, logging,
+reproducibility, CLI, and quality infrastructure. Phase 2 adds read-only SQL
+Server catalog access and schema validation. It does not read warranty records,
+construct a feature mart, train a model, or serve inference.
+
+## Package structure
+
+- common/: shared utilities that are not specific to a future modeling stage.
+- database/: Phase 2 typed SQL Server connection, catalog metadata, contract,
+  diff, and reporting modules.
+- ingestion/: later boundary for approved source extraction; no record ingestion
+  exists in Phase 2.
+- validation/: Phase 2 schema comparison and later logical data-quality boundary.
+- features/: Phase 5 boundary for claim-time feature-mart construction.
+- models/: Phase 5 and later boundary for training and model artifacts.
+- evaluation/: Phase 5 and later boundary for metrics and calibration.
+- inference/: Phase 5 and later boundary for inference; no inference exists in
+  Phase 1.
+- config.py: typed layered settings and safe redaction.
+- paths.py: repository-relative path resolution.
+- logging_config.py: standard-library console and optional file logging.
+- reproducibility.py: deterministic Python random seeding.
+- cli.py: doctor, show-config, version, offline contract check, and explicit live
+  database validation commands.
+
+The package uses the src layout so imports resolve from the installed package
+rather than from an accidental repository-root module.
+
+## Configuration flow
+
+Settings use this precedence:
+
+    Typed defaults < configs/base.yaml < configs/<environment>.yaml
+    < optional local .env < operating-system environment variables
+
+WARRANTY_MODEL_ENV selects development or test before the environment-specific
+YAML file is loaded. The local .env file is optional. Operating-system
+environment variables win over values from .env. Database credentials are
+accepted only from local environment variables and live connectivity is
+explicitly read only.
+
+## Logging flow
+
+Modules obtain named standard-library loggers through logging_config.get_logger.
+The CLI and future entry points call configure_logging explicitly. Console
+logging is enabled by default, handlers are marked and reused on repeated setup,
+and file logging is opt-in. Generic infrastructure logs must not contain secrets
+or record-level values such as VINs, customer names, notes, or complaint text.
+
+## Path handling
+
+paths.py discovers the repository from the current working directory or an
+explicit root and resolves configured relative directories with pathlib. Importing
+the package does not create directories. Output directories are created only by
+an explicit ensure_output_directories call or explicit file-logging setup.
+
+## Testing structure
+
+- tests/unit/: isolated checks for configuration, paths, logging,
+  reproducibility, and CLI behavior.
+- tests/integration/: checks that multiple Phase 1 components work together.
+- tests/conftest.py: shared test isolation and environment cleanup.
+
+Tests use temporary directories for filesystem behavior. Normal CI tests do not
+connect to a database, require network access, or use warranty records.
+Optional live tests are gated by `WARRANTY_RUN_DB_TESTS=true` and valid local
+settings.
+
+## Phase boundaries
+
+- Phase 1: project scaffolding and infrastructure quality gates.
+- Phase 2: SQL Server connectivity, schema validation, and source-table checks.
+- Phase 3: data profiling, synthetic-data audit, and logical data-quality work.
+- Phase 4: executable target construction and leakage enforcement against actual
+  columns.
+- Phase 5 and later: feature engineering, model training, evaluation,
+  calibration, inference, and monitoring.
+
+These boundaries preserve the Phase 0 contract and prevent infrastructure work
+from implying that later capabilities already exist.
+
+## Reusable code, notebooks, and generated artifacts
+
+Reusable behavior belongs under src/warranty_analytics_model/. Notebooks are
+allowed for exploration and temporary investigation but are not the only
+implementation of reusable workflows. Source code is separate from generated
+data, model artifacts, reports, and logs; generated contents are ignored by
+default while README files document their purpose.

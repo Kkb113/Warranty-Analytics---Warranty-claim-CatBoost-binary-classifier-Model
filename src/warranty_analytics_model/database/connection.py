@@ -12,7 +12,7 @@ from sqlalchemy import Connection, Engine, create_engine, text
 from sqlalchemy.engine import URL
 from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 
-from ..config import DatabaseSettings
+from .config import DatabaseSettings
 from .exceptions import (
     DatabaseConfigurationError,
     DatabaseConnectionError,

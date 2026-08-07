@@ -7,7 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from warranty_analytics_model.database.models import LiveSchemaMetadata, SchemaIssue, ValidationResult
+from warranty_analytics_model.database.models import (
+    LiveSchemaMetadata,
+    SchemaIssue,
+    ValidationResult,
+)
 from warranty_analytics_model.database.reporting import write_validation_reports
 from warranty_analytics_model.database.schema_contract import load_schema_contract
 from warranty_analytics_model.database.schema_validator import validate_schema
@@ -100,5 +104,7 @@ def test_diff_result_can_be_promoted_to_failed_validation() -> None:
     live = _matching_live(contract).model_copy(update={"tables": []})
     result = validate_schema(contract, live, checksum, environment="test")
     assert result.status == "failed"
-    assert result.error_count == len([issue for issue in result.issues if issue.severity == "ERROR"])
+    assert result.error_count == len(
+        [issue for issue in result.issues if issue.severity == "ERROR"]
+    )
     assert result.actual_table_count == 0

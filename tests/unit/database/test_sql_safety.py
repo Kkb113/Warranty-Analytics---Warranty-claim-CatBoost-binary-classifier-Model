@@ -6,13 +6,25 @@ from pathlib import Path
 
 from warranty_analytics_model.database.connection import _SQL_RESOURCES, load_sql_resource
 
-SQL_DIRECTORY = Path(__file__).resolve().parents[3] / "src" / "warranty_analytics_model" / "database" / "sql"
+SQL_DIRECTORY = (
+    Path(__file__).resolve().parents[3] / "src" / "warranty_analytics_model" / "database" / "sql"
+)
 
 
 def test_all_allowlisted_sql_resources_are_packaged_and_explicit() -> None:
     """Every query resource is readable, explicit-column, and read-only."""
 
-    forbidden = ("insert ", "update ", "delete ", "merge ", "truncate ", "create ", "alter ", "drop ", "exec ")
+    forbidden = (
+        "insert ",
+        "update ",
+        "delete ",
+        "merge ",
+        "truncate ",
+        "create ",
+        "alter ",
+        "drop ",
+        "exec ",
+    )
     assert _SQL_RESOURCES
     for name in _SQL_RESOURCES:
         query = load_sql_resource(name)

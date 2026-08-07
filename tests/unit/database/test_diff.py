@@ -27,7 +27,9 @@ def _live(contract, tables=None, **updates):
         "database_name": "warranty_analytics",
         "server_name": "sql.example.test",
         "sql_version": "Microsoft SQL Server 2022",
-        "tables": tables if tables is not None else [table.model_copy(deep=True) for table in contract.tables],
+        "tables": tables
+        if tables is not None
+        else [table.model_copy(deep=True) for table in contract.tables],
         "all_table_names": [table.name for table in contract.tables],
         "schemas": ["dbo"],
         "views": [],
@@ -45,9 +47,7 @@ def _codes(result) -> set[str]:
 
 def _replace_table(live, table):
     return live.model_copy(
-        update={
-            "tables": [table if item.name == table.name else item for item in live.tables]
-        }
+        update={"tables": [table if item.name == table.name else item for item in live.tables]}
     )
 
 
@@ -76,7 +76,9 @@ def test_matching_schema_is_non_blocking_and_reports_excluded_status() -> None:
             "MISSING_COLUMN",
         ),
         (
-            lambda live: live.model_copy(update={"all_table_names": [*live.all_table_names, "dbo.extra"]}),
+            lambda live: live.model_copy(
+                update={"all_table_names": [*live.all_table_names, "dbo.extra"]}
+            ),
             "EXTRA_TABLE",
         ),
         (
@@ -113,10 +115,32 @@ def test_table_and_column_scope_drift_is_reported(mutate, expected_code: str) ->
 @pytest.mark.parametrize(
     "column_name, actual_type, expected_code",
     [
-        ("component_id", SQLTypeSpec(base_type="varchar", max_length=50, unicode=False, length_unit="characters"), "COLUMN_TYPE_MISMATCH"),
-        ("component_id", SQLTypeSpec(base_type="nvarchar", max_length=40, unicode=True, length_unit="characters"), "COLUMN_LENGTH_NARROWER"),
-        ("component_id", SQLTypeSpec(base_type="nvarchar", max_length=100, unicode=True, length_unit="characters"), "COLUMN_LENGTH_WIDENED"),
-        ("unit_cost", SQLTypeSpec(base_type="decimal", precision=10, scale=2), "COLUMN_PRECISION_SCALE_MISMATCH"),
+        (
+            "component_id",
+            SQLTypeSpec(
+                base_type="varchar", max_length=50, unicode=False, length_unit="characters"
+            ),
+            "COLUMN_TYPE_MISMATCH",
+        ),
+        (
+            "component_id",
+            SQLTypeSpec(
+                base_type="nvarchar", max_length=40, unicode=True, length_unit="characters"
+            ),
+            "COLUMN_LENGTH_NARROWER",
+        ),
+        (
+            "component_id",
+            SQLTypeSpec(
+                base_type="nvarchar", max_length=100, unicode=True, length_unit="characters"
+            ),
+            "COLUMN_LENGTH_WIDENED",
+        ),
+        (
+            "unit_cost",
+            SQLTypeSpec(base_type="decimal", precision=10, scale=2),
+            "COLUMN_PRECISION_SCALE_MISMATCH",
+        ),
     ],
 )
 def test_sql_type_normalization_and_compatibility(
@@ -132,7 +156,9 @@ def test_sql_type_normalization_and_compatibility(
     actual_column = column.model_copy(update={"sql_type": actual_type})
     actual_table = table.model_copy(
         update={
-            "columns": [actual_column if item.name == column_name else item for item in table.columns]
+            "columns": [
+                actual_column if item.name == column_name else item for item in table.columns
+            ]
         }
     )
     result = diff_schema(contract, _replace_table(_live(contract), actual_table))
@@ -148,11 +174,19 @@ def test_nullability_identity_and_computed_drift_are_blocking() -> None:
     column = table.columns[0]
     actual_column = column.model_copy(update={"nullable": True, "identity": True, "computed": True})
     actual_table = table.model_copy(
-        update={"columns": [actual_column if item.name == column.name else item for item in table.columns]}
+        update={
+            "columns": [
+                actual_column if item.name == column.name else item for item in table.columns
+            ]
+        }
     )
     codes = _codes(diff_schema(contract, _replace_table(_live(contract), actual_table)))
 
-    assert {"COLUMN_NULLABILITY_MISMATCH", "COLUMN_IDENTITY_MISMATCH", "COLUMN_COMPUTED_MISMATCH"} <= codes
+    assert {
+        "COLUMN_NULLABILITY_MISMATCH",
+        "COLUMN_IDENTITY_MISMATCH",
+        "COLUMN_COMPUTED_MISMATCH",
+    } <= codes
 
 
 def test_primary_key_foreign_key_and_index_drift_are_classified() -> None:
@@ -166,7 +200,7 @@ def test_primary_key_foreign_key_and_index_drift_are_classified() -> None:
     bad_table = table.model_copy(
         update={
             "primary_key": None,
-            "foreign_keys": [table.foreign_keys[0].model_copy(update={"trusted": False})],
+            "foreign_keys": [],
             "indexes": [],
         }
     )
@@ -190,7 +224,9 @@ def test_warnings_properties_defaults_and_row_estimates_support_strict_mode() ->
     contract = _contract()
     table = contract.tables[0]
     column = table.columns[1]
-    widened_column = column.model_copy(update={"default": "(0)", "collation": "Latin1_General_100_BIN2"})
+    widened_column = column.model_copy(
+        update={"default": "(0)", "collation": "Latin1_General_100_BIN2"}
+    )
     widened_table = table.model_copy(
         update={
             "estimated_rows": table.estimated_rows + 1,
@@ -200,7 +236,9 @@ def test_warnings_properties_defaults_and_row_estimates_support_strict_mode() ->
                 memory_optimized=True,
                 file_table=False,
             ),
-            "columns": [widened_column if item.name == column.name else item for item in table.columns],
+            "columns": [
+                widened_column if item.name == column.name else item for item in table.columns
+            ],
         }
     )
     normal = diff_schema(contract, _replace_table(_live(contract), widened_table))

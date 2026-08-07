@@ -71,5 +71,3 @@ logs/**
 *.zip
 *.tar
 *.tar.gz
-README.md
-docs
