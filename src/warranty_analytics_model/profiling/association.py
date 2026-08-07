@@ -67,7 +67,7 @@ def association_table(
     if target_column not in frame:
         return []
     target = pd.to_numeric(frame[target_column], errors="coerce")
-    selected = list(columns or frame.columns)
+    selected = list(columns) if columns is not None else list(frame.columns)
     leakage = {column.casefold() for column in leakage_columns}
     output: list[dict[str, Any]] = []
     for column in selected:
@@ -117,7 +117,7 @@ def missingness_by_target(
     if target_column not in frame:
         return []
     target = pd.to_numeric(frame[target_column], errors="coerce")
-    selected = list(columns or frame.columns)
+    selected = list(columns) if columns is not None else list(frame.columns)
     rows: list[dict[str, object]] = []
     for column in selected:
         if column == target_column or column not in frame:

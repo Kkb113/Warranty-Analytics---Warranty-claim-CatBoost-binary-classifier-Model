@@ -14,7 +14,7 @@ from ..database.connection import check_database_connection
 from ..database.metadata import collect_schema_metadata
 from ..database.schema_contract import load_schema_contract
 from ..database.schema_validator import validate_schema
-from .association import association_table
+from .association import association_table, missingness_by_target
 from .category_sparsity import category_sparsity
 from .config import ProfilingSettings
 from .extractor import LiveProfileExtractor
@@ -255,6 +255,7 @@ def _quality_findings(
     maintenance: dict[str, Any],
     synthetic: dict[str, Any],
     missingness: list[dict[str, Any]],
+    missingness_target: list[dict[str, Any]],
     category_rows: list[dict[str, Any]],
 ) -> list[Finding]:
     findings: list[Finding] = []
@@ -423,7 +424,11 @@ def _quality_findings(
         )
     group_purity = synthetic.get("group_purity", [])
     pure_count = (
-        sum(1 for row in group_purity if isinstance(row, dict) and row.get("target_pure"))
+        sum(
+            1
+            for row in group_purity
+            if isinstance(row, dict) and row.get("target_pure") and row.get("meaningful_support")
+        )
         if isinstance(group_purity, list)
         else 0
     )
@@ -471,6 +476,22 @@ def _quality_findings(
                     evidence={"null_percentage": row["null_percentage"]},
                     modeling_impact="Claim-time completeness may vary by process stage.",
                     recommendation="Confirm capture timing and missingness policy.",
+                    required_resolution_phase="Phase 4",
+                )
+            )
+    for row in missingness_target:
+        if row.get("suspected_leakage"):
+            findings.append(
+                make_finding(
+                    "SYNTHETIC_MISSINGNESS_LEAKAGE",
+                    "WARNING",
+                    "synthetic_leakage",
+                    "Missingness rates differ sharply between target classes.",
+                    table=TARGET_TABLE,
+                    columns=[str(row.get("field"))],
+                    evidence={"missing_rate_by_target": row.get("missing_rate_by_target")},
+                    modeling_impact="Missingness may encode the target-generation process rather than a claim-time signal.",
+                    recommendation="Confirm capture timing before adding missingness indicators in Phase 4.",
                     required_resolution_phase="Phase 4",
                 )
             )
@@ -542,6 +563,7 @@ def profile_dataframes(
         normalized_frames.get("dbo.dim_supplier"),
     )
     missingness = missingness_summary(normalized_frames)
+    missingness_target = missingness_by_target(context, columns=context.columns)
     category_rows = category_sparsity(
         context,
         _category_columns(context),
@@ -580,6 +602,7 @@ def profile_dataframes(
         maintenance,
         synthetic,
         missingness,
+        missingness_target,
         category_rows,
     )
     if contract is not None:
@@ -616,6 +639,7 @@ def profile_dataframes(
         "target_profile": target,
         "data_quality": quality,
         "missingness": missingness,
+        "missingness_by_target": missingness_target,
         "category_sparsity": category_rows,
         "associations": associations,
         "synthetic_data_audit": synthetic,

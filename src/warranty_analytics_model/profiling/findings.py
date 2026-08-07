@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Literal
@@ -53,7 +55,13 @@ def make_finding(
 
     safe_code = "_".join(part for part in issue_code.lower().split() if part)
     table_part = (table or "project").replace(".", "_").replace(" ", "_")
-    finding_id = f"{safe_code}:{table_part}"
+    detail = "_".join(str(column) for column in columns)
+    if not detail and evidence:
+        detail_value = evidence.get("rule") or evidence.get("field") or evidence.get("flag")
+        detail = str(detail_value) if detail_value is not None else ""
+    if detail:
+        detail = hashlib.sha256(json.dumps(detail, sort_keys=True).encode("utf-8")).hexdigest()[:10]
+    finding_id = f"{safe_code}:{table_part}" + (f":{detail}" if detail else "")
     return Finding(
         finding_id=finding_id,
         issue_code=issue_code,

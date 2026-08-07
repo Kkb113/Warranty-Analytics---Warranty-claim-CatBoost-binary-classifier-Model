@@ -195,7 +195,9 @@ def _synthetic_rows(result: dict[str, Any]) -> list[str]:
     )
     purity = audit.get("group_purity", [])
     pure = isinstance(purity, list) and any(
-        item.get("target_pure") for item in purity if isinstance(item, dict)
+        item.get("target_pure") and item.get("meaningful_support")
+        for item in purity
+        if isinstance(item, dict)
     )
     rows.append(
         _audit_row(

@@ -35,12 +35,13 @@ def foreign_key_orphans(
             else:
                 parent_key = set(parent_keys.astype(str).agg("|".join, axis=1).tolist())
             # Count child rows, not only distinct keys.
+            valid_child_rows = child[child_columns].notna().all(axis=1)
             if len(child_columns) == 1:
                 child_values = child[child_columns[0]]
-                orphan_count = int((child_values.notna() & ~child_values.isin(parent_key)).sum())
+                orphan_count = int((valid_child_rows & ~child_values.isin(parent_key)).sum())
             else:
                 child_values = child[child_columns].astype(str).agg("|".join, axis=1)
-                orphan_count = int((~child_values.isin(parent_key)).sum())
+                orphan_count = int((valid_child_rows & ~child_values.isin(parent_key)).sum())
             rows_checked = int(child[child_columns].notna().all(axis=1).sum())
             output.append(
                 {

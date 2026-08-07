@@ -136,6 +136,55 @@ def audit_target_generation(
     return result
 
 
+def grouped_threshold_audit(
+    claims: pd.DataFrame,
+    *,
+    target_column: str = "high_cost_claim_flag",
+    group_columns: Iterable[str] = (
+        "claim_type",
+        "model_name",
+        "truck_model_key",
+        "warranty_policy_key",
+        "component_category",
+        "region",
+    ),
+) -> dict[str, list[dict[str, object]]]:
+    """Check whether cost separation appears to vary across descriptive groups."""
+
+    if target_column not in claims or "total_claim_cost" not in claims:
+        return {}
+    target = pd.to_numeric(claims[target_column], errors="coerce")
+    costs = pd.to_numeric(claims["total_claim_cost"], errors="coerce")
+    output: dict[str, list[dict[str, object]]] = {}
+    for column in group_columns:
+        if column not in claims:
+            continue
+        rows: list[dict[str, object]] = []
+        for value, group in claims.groupby(column, dropna=False, observed=True):
+            valid = pd.DataFrame(
+                {"target": target.loc[group.index], "cost": costs.loc[group.index]}
+            ).dropna()
+            valid = valid[valid["target"].isin([0, 1])]
+            positive = valid.loc[valid.target == 1, "cost"]
+            negative = valid.loc[valid.target == 0, "cost"]
+            if positive.empty or negative.empty:
+                continue
+            minimum_positive = float(positive.min())
+            maximum_negative = float(negative.max())
+            rows.append(
+                {
+                    "group": _safe_group_value(value, column),
+                    "records": int(len(valid)),
+                    "minimum_positive": minimum_positive,
+                    "maximum_negative": maximum_negative,
+                    "distribution_overlap": bool(minimum_positive <= maximum_negative),
+                    "separates_exactly": bool(minimum_positive > maximum_negative),
+                }
+            )
+        output[column] = rows
+    return output
+
+
 def profile_target(
     claims: pd.DataFrame,
     target_column: str = "high_cost_claim_flag",
@@ -186,4 +235,5 @@ def profile_target(
         if column in claims:
             output["by_group"][column] = group_target_rates(claims, column, target_column)
     output["target_generation_audit"] = audit_target_generation(claims, target_column)
+    output["group_threshold_audit"] = grouped_threshold_audit(claims, target_column=target_column)
     return output

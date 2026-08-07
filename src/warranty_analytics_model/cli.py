@@ -32,7 +32,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         prog="warranty-model",
-        description="Infrastructure and Phase 2 schema diagnostics for the warranty analytics project.",
+        description="Infrastructure, Phase 2 schema, and Phase 3 data diagnostics for the warranty analytics project.",
     )
     subparsers = parser.add_subparsers(dest="command")
     subparsers.add_parser("doctor", help="Validate Phase 1 infrastructure only.")

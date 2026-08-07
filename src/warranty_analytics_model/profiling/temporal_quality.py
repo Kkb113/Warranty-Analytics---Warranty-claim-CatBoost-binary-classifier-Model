@@ -198,6 +198,11 @@ def telemetry_quality(frame: pd.DataFrame) -> dict[str, object]:
                 decreases += int(group["total_odometer_miles"].diff().lt(0).sum())
         result["missing_month_gap_count"] = missing_gaps
         result["odometer_decrease_count"] = decreases
+        engine_decreases = 0
+        if "engine_hours_month" in ordered:
+            for _, group in ordered.groupby(truck_column, observed=True):
+                engine_decreases += int(group["engine_hours_month"].diff().lt(0).sum())
+        result["engine_hours_decrease_count"] = engine_decreases
     for column in (
         "total_odometer_miles",
         "engine_hours_month",
@@ -252,6 +257,14 @@ def telemetry_quality(frame: pd.DataFrame) -> dict[str, object]:
                 "issue": "odometer_decreases",
                 "severity": "ERROR",
                 "count": result["odometer_decrease_count"],
+            }
+        )
+    if result.get("engine_hours_decrease_count", 0):
+        issues.append(
+            {
+                "issue": "engine_hours_decreases",
+                "severity": "WARNING",
+                "count": result["engine_hours_decrease_count"],
             }
         )
     for column, measurement in result["measurements"].items():
