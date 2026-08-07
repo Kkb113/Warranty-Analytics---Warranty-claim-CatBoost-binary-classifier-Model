@@ -62,7 +62,7 @@ def audit_identifiers(
             "max_supported_pure_group": 0,
             "synthetic_identifier_leakage": False,
         }
-        structured = non_null.str.len().fillna(0).ge(4)
+        structured = non_null.str.len().fillna(0).ge(2)
         if structured.any():
             prefix = values.str.slice(0, 3)
             suffix = values.str.slice(-3)

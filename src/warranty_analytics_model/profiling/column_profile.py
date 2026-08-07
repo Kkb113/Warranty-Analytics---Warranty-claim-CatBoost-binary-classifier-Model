@@ -38,6 +38,21 @@ def normalize_text(value: object) -> str:
     return re.sub(r"\s+", " ", str(value).strip().casefold())
 
 
+def looks_like_date_column(column: str) -> bool:
+    """Recognize date fields without misclassifying numeric ``date_key`` values."""
+
+    normalized = column.casefold()
+    return (
+        normalized.endswith("_date")
+        or normalized.endswith("_datetime")
+        or normalized
+        in {
+            "full_date",
+            "month_start_date",
+        }
+    )
+
+
 def _json_value(value: object) -> object:
     if value is None or (isinstance(value, float) and np.isnan(value)):
         return None
@@ -88,11 +103,17 @@ def profile_series(
         "null_percentage": round(null_count / row_count * 100, 6) if row_count else 0.0,
     }
 
-    date_values = pd.to_datetime(series, errors="coerce")
-    is_date = pd.api.types.is_datetime64_any_dtype(series) or (
-        ("date" in name.casefold() or name.casefold().endswith("_at"))
-        and date_values.notna().sum() > 0
+    date_like = (
+        pd.api.types.is_datetime64_any_dtype(series)
+        or looks_like_date_column(name)
+        or name.casefold().endswith("_at")
     )
+    date_values = (
+        pd.to_datetime(series, errors="coerce")
+        if date_like
+        else pd.Series(pd.NaT, index=series.index)
+    )
+    is_date = date_like and date_values.notna().sum() > 0
     if is_date:
         valid_dates = date_values.dropna()
         reference = reference_date or pd.Timestamp.now(tz="UTC").tz_localize(None)

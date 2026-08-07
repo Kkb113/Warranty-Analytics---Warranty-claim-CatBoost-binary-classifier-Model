@@ -5,16 +5,21 @@
 The repository is a configuration-driven Python package for future truck-warranty
 claim modeling. Phase 1 implements package, configuration, path, logging,
 reproducibility, CLI, and quality infrastructure. Phase 2 adds read-only SQL
-Server catalog access and schema validation. It does not read warranty records,
-construct a feature mart, train a model, or serve inference.
+Server catalog access and schema validation. Phase 3 adds contract-scoped,
+read-only data profiling and synthetic-data auditing. No phase constructs a
+production feature mart, trains a model, or serves inference.
 
 ## Package structure
 
 - common/: shared utilities that are not specific to a future modeling stage.
 - database/: Phase 2 typed SQL Server connection, catalog metadata, contract,
   diff, and reporting modules.
-- ingestion/: later boundary for approved source extraction; no record ingestion
-  exists in Phase 2.
+- profiling/: Phase 3 explicit-column extraction, table/column/target profiles,
+  data-quality checks, temporal/telemetry audits, synthetic-data audits,
+  findings, and report generation.
+- ingestion/: later boundary for approved production source extraction; the
+  Phase 3 profiling extractor is diagnostic and contract-scoped, not an
+  ingestion or feature pipeline.
 - validation/: Phase 2 schema comparison and later logical data-quality boundary.
 - features/: Phase 5 boundary for claim-time feature-mart construction.
 - models/: Phase 5 and later boundary for training and model artifacts.
@@ -25,8 +30,8 @@ construct a feature mart, train a model, or serve inference.
 - paths.py: repository-relative path resolution.
 - logging_config.py: standard-library console and optional file logging.
 - reproducibility.py: deterministic Python random seeding.
-- cli.py: doctor, show-config, version, offline contract check, and explicit live
-  database validation commands.
+- cli.py: infrastructure and schema commands plus explicit live Phase 3
+  profiling/audit commands.
 
 The package uses the src layout so imports resolve from the installed package
 rather than from an accidental repository-root module.
@@ -66,8 +71,10 @@ an explicit ensure_output_directories call or explicit file-logging setup.
 - tests/integration/: checks that multiple Phase 1 components work together.
 - tests/conftest.py: shared test isolation and environment cleanup.
 
-Tests use temporary directories for filesystem behavior. Normal CI tests do not
-connect to a database, require network access, or use warranty records.
+Tests use temporary directories and fictional DataFrames for profiling behavior.
+Normal CI tests do not connect to a database, require network access, or use
+warranty records. Optional live tests remain gated by
+`WARRANTY_RUN_DB_TESTS=true`.
 Optional live tests are gated by `WARRANTY_RUN_DB_TESTS=true` and valid local
 settings.
 

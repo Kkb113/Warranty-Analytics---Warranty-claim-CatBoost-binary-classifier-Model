@@ -7,7 +7,7 @@ From the repository root:
     py -3.11 -m venv .venv
     .\.venv\Scripts\Activate.ps1
     python -m pip install --upgrade pip
-    python -m pip install -e ".[dev,database]"
+    python -m pip install -e ".[dev,database,profiling]"
 
 Select the development environment explicitly when needed:
 
@@ -56,6 +56,10 @@ output into tickets or logs if local environment metadata is sensitive.
     python -m warranty_analytics_model schema-contract-check
     python -m warranty_analytics_model db-check
     python -m warranty_analytics_model schema-validate
+    python -m warranty_analytics_model data-profile
+    python -m warranty_analytics_model synthetic-audit
+    python -m warranty_analytics_model data-quality-check
+    python -m warranty_analytics_model phase3-run --no-charts
     python -m ruff check .
     python -m ruff format --check .
     python -m mypy src
@@ -89,7 +93,7 @@ system-wide solely for this project.
 
 Confirm the virtual environment is active and rerun:
 
-    python -m pip install -e ".[dev,database]"
+    python -m pip install -e ".[dev,database,profiling]"
 
 Run commands from the repository root so configuration discovery can locate
 pyproject.toml and configs/.

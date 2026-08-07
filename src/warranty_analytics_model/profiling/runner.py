@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import pandas as pd
 
@@ -154,7 +154,6 @@ def _claim_context(frames: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
         "dbo.dim_location",
         "location_key",
         ["region", "climate_zone", "terrain_type"],
-        rename_prefix="service_",
     )
     return claims
 
@@ -343,9 +342,7 @@ def _quality_findings(
     for row in temporal_rows:
         count = int(row.get("violation_count", 0))
         if count:
-            severity = cast(
-                FindingSeverity, "ERROR" if row.get("severity") == "ERROR" else "WARNING"
-            )
+            severity: FindingSeverity = "ERROR" if row.get("severity") == "ERROR" else "WARNING"
             findings.append(
                 make_finding(
                     "TEMPORAL_ORDER_VIOLATION",

@@ -7,17 +7,23 @@ from typing import Any
 
 import pandas as pd
 
-from .column_profile import profile_series
+from .column_profile import looks_like_date_column, profile_series
 
 
 def _date_columns(frame: pd.DataFrame) -> list[str]:
     columns: list[str] = []
     for column in frame.columns:
-        values = pd.to_datetime(frame[column], errors="coerce")
-        if pd.api.types.is_datetime64_any_dtype(frame[column]) or (
-            ("date" in str(column).casefold() or str(column).casefold().endswith("_at"))
-            and values.notna().any()
-        ):
+        date_like = (
+            pd.api.types.is_datetime64_any_dtype(frame[column])
+            or looks_like_date_column(str(column))
+            or str(column).casefold().endswith("_at")
+        )
+        values = (
+            pd.to_datetime(frame[column], errors="coerce")
+            if date_like
+            else pd.Series(pd.NaT, index=frame.index)
+        )
+        if date_like and values.notna().any():
             columns.append(str(column))
     return columns
 
