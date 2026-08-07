@@ -28,6 +28,12 @@ dev = [
 database = [
     "pyodbc>=5.0,<6",
 ]
+profiling = [
+    "numpy>=1.24,<3",
+    "pandas>=2.0,<3",
+    "scipy>=1.10,<2",
+    "matplotlib>=3.7,<4",
+]
 
 [project.scripts]
 warranty-model = "warranty_analytics_model.cli:main"
@@ -87,3 +93,7 @@ python_version = "3.11"
 mypy_path = "src"
 packages = ["warranty_analytics_model"]
 strict = true
+
+[[tool.mypy.overrides]]
+module = ["pandas", "pandas.*"]
+ignore_missing_imports = true

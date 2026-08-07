@@ -63,6 +63,28 @@ def build_parser() -> argparse.ArgumentParser:
         default=("json", "markdown"),
         help="Report formats when reporting is enabled.",
     )
+    for command, help_text in (
+        ("data-profile", "Profile approved business tables and the warranty target."),
+        ("synthetic-audit", "Run target, identifier, duplicate, group, and text audits."),
+        ("data-quality-check", "Run referential, temporal, telemetry, and logical quality checks."),
+        ("phase3-run", "Run the complete Phase 3 profiling and audit workflow."),
+    ):
+        phase3 = subparsers.add_parser(command, help=help_text)
+        phase3.add_argument("--output-dir", type=Path, help="Report root override.")
+        phase3.add_argument(
+            "--no-charts", action="store_true", help="Do not generate optional charts."
+        )
+        phase3.add_argument(
+            "--format",
+            choices=("json", "markdown", "both"),
+            default="both",
+            help="Report format to write.",
+        )
+        phase3.add_argument(
+            "--fail-on-error",
+            action="store_true",
+            help="Return a non-zero status when Phase 3 records ERROR findings.",
+        )
     return parser
 
 
@@ -253,6 +275,61 @@ def _run_schema_validate(arguments: argparse.Namespace) -> int:
     return 0 if result.status == "passed" else 1
 
 
+def _run_phase3(arguments: argparse.Namespace) -> int:
+    """Run a live, read-only Phase 3 command with secret-safe console output."""
+
+    settings, status = _load_live_settings()
+    if settings is None:
+        return status
+    try:
+        from .profiling.config import load_profiling_settings
+        from .profiling.runner import run_live_phase3
+
+        profiling = load_profiling_settings()
+        formats = ("json", "markdown") if arguments.format == "both" else (arguments.format,)
+        result = run_live_phase3(
+            settings,
+            profiling_settings=profiling,
+            output_dir=arguments.output_dir,
+            report_formats=formats,
+            no_charts=arguments.no_charts,
+        )
+    except ConfigurationError as exc:
+        print(f"Configuration error: {exc}", file=sys.stderr)
+        return 2
+    except DatabaseConfigurationError as exc:
+        print(f"Database configuration error: {exc}", file=sys.stderr)
+        return 2
+    except DatabaseDriverError as exc:
+        print(f"Database driver error: {exc}", file=sys.stderr)
+        return 3
+    except DatabaseConnectionError as exc:
+        print(f"Database connection error: {exc}", file=sys.stderr)
+        return 3
+    except (UnexpectedDatabaseError, RuntimeError, ValueError) as exc:
+        print(f"Phase 3 execution error: {exc}", file=sys.stderr)
+        return 4
+    except Exception as exc:
+        print(f"Unexpected Phase 3 error: {exc}", file=sys.stderr)
+        return 4
+
+    counts = result.get("finding_counts", {})
+    target = result.get("target_profile", {})
+    report = result.get("report_directory", "-")
+    print("Phase 3 profiling completed")
+    print(f"Tables profiled: {result.get('included_table_count', 0)}")
+    print(f"Claims analyzed: {target.get('claims', 0) if isinstance(target, dict) else 0}")
+    print(f"Data quality errors: {counts.get('ERROR', 0) if isinstance(counts, dict) else 0}")
+    print(f"Warnings: {counts.get('WARNING', 0) if isinstance(counts, dict) else 0}")
+    if isinstance(target, dict):
+        print(f"Target positive rate: {target.get('positive_percentage', 0.0)}%")
+    print(f"Overall status: {result.get('status', 'UNKNOWN')}")
+    print(f"Report: {report}")
+    if arguments.fail_on_error and isinstance(counts, dict) and counts.get("ERROR", 0):
+        return 1
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run one supported CLI command."""
 
@@ -274,5 +351,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_db_check()
     if arguments.command == "schema-validate":
         return _run_schema_validate(arguments)
+    if arguments.command in {"data-profile", "synthetic-audit", "data-quality-check", "phase3-run"}:
+        return _run_phase3(arguments)
     parser.error(f"Unsupported command: {arguments.command}")
     return 2

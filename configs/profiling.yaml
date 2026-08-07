@@ -1,0 +1,22 @@
+profiling:
+  output_directory: reports/data_profiling
+  chunk_size: 10000
+  top_categories: 20
+  percentiles:
+    - 0.01
+    - 0.05
+    - 0.25
+    - 0.50
+    - 0.75
+    - 0.95
+    - 0.99
+  rare_category_thresholds:
+    - 1
+    - 5
+    - 10
+    - 20
+  enable_text_audit: true
+  enable_identifier_audit: true
+  enable_temporal_audit: true
+  enable_target_audit: true
+  generate_charts: false
