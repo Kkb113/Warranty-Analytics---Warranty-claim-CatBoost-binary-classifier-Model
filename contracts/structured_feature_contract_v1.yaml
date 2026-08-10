@@ -1,0 +1,111 @@
+contract_version: "1.0.0"
+created_at: "2026-08-10T00:00:00Z"
+
+schema_contract_checksum: "00f86ec9db8ea84d88ea53d3a95d5df4e9a455d9555013d089026a399660cb06"
+target_contract_checksum: "17f39d6abf71861bd9c9d7c514c1847cef08049a312988b1c4dec3b4b204c25b"
+feature_policy_checksum: "1b42aef48ddaedddaae9288cec2494fcce528788c6038f14668e767403e7c3c9"
+leakage_policy_checksum: "fda75d50c0e6fd06c59e04a0d7cfc3dad5080b1257870021c76aa6040140ec3e"
+phase5_mart_contract_checksum: "6e2650270c788dadb8ab46ddaf9e38f2940474d85cf959a96f168ab80c45855e"
+phase6_split_contract_checksum: "698ce73b4545d33b9ca8559dc899f6614d072139d476bf9c0a5f42bdde8d03f4"
+
+feature_grain: "one row = one eligible warranty claim"
+prediction_reference:
+  column: claim__claim_date
+  status: provisional_date_level
+  rule: strict-before historical availability; the claim month is incomplete and excluded
+
+direct_feature_policy:
+  safe_non_date_direct_fields: CORE
+  raw_date_fields: CONTROL_ONLY
+  calendar_fields: CORE
+  categorical_representation: preserve_strings_without_encoding
+
+structured_feature_families:
+  - direct
+  - lifecycle
+  - usage
+  - warranty
+  - telemetry
+  - maintenance
+  - service
+  - component
+  - prior_claim
+  - history_coverage
+
+feature_tiers:
+  CORE:
+    description: robust, interpretable, relatively low-dimensional structured candidates
+  EXTENDED:
+    description: safe variability, trends, changes, long-window, and diversity candidates
+
+historical_windows: [3m, 6m, 12m, 24m, all]
+aggregation_rules:
+  additive_measures: [sum, mean]
+  continuous_measures: [mean, latest, min, max, std]
+  standard_deviation: population_ddof_0_minimum_2
+  cumulative_odometer: latest_minus_earliest_change_only
+trend_rules:
+  method: per_claim_least_squares
+  x_axis: year_times_12_plus_month
+  minimum_distinct_months: 3
+  same_month_rule: aggregate_before_slope
+recency_rules:
+  latest_event: date_then_stable_source_key
+  formula: claim_date_minus_latest_safe_event
+ratio_rules:
+  invalid_denominator: null
+  zero_denominator: null
+  clipping: none
+categorical_rules:
+  representation: string
+  encoding: none
+  mode_tie_break: lexical_after_highest_frequency
+missingness_rules:
+  missing_history_counts: zero
+  missing_history_measurements: null
+  imputation: none
+
+target_independence_policy:
+  target_column: target__high_cost_claim_flag
+  target_column_excluded: true
+  target_statistics: prohibited
+  target_encoding: prohibited
+  globally_fitted_transformations: []
+  target_reserved_for_phase: 15
+
+test_lock_policy:
+  consume_existing_split: true
+  create_new_split: false
+  verify_train_validation_test_membership: true
+  verify_ordered_test_hash: true
+  verify_unordered_test_hash: true
+  verify_test_assignment_hash: true
+
+artifact_layout:
+  root: artifacts/structured_features/<run_id>
+  structured_features: structured_features.parquet
+  feature_manifest: feature_manifest.json
+  feature_lineage: feature_lineage.json
+  feature_quality: feature_quality.json
+  manifest: manifest.json
+  validation: validation.json
+  reports: reports/phase7_structured_features/<run_id>
+  canonical_row_order: warranty_claim_key_ascending
+  canonical_column_order: controls_then_core_then_extended
+
+deferred_sources:
+  - source: prior_failure__failure_description
+    reason: text-like content deferred to Phase 8
+  - source: repair_history_index
+    reason: control/eligibility artifact only; no model features
+  - source: restricted identifiers and evaluation metadata
+    reason: split-control and governance only
+  - source: globally fitted encoders, imputers, scalers, and frequency transforms
+    reason: deferred until a later modeling policy is approved
+
+development_status:
+  status: synthetic_poc
+  business_target_definition_confirmed: false
+  production_approved: false
+  real_data_reapproval_required: true
+  phase8_ready_if_validated: true

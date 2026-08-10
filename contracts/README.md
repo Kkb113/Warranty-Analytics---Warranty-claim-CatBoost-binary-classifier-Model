@@ -57,3 +57,15 @@ Phase 6 consumes only an already completed Phase 5 mart. Generated split
 assignments, group-exposure artifacts, evaluation cohorts, manifests, test
 locks, and reports are local ignored outputs and must not be committed to this
 public repository.
+
+Phase 7 adds `structured_feature_contract_v1.yaml` and technical settings in
+`configs/structured_features.yaml`. The structured-feature package consumes
+the exact Phase 5 mart and corrected Phase 6 split offline, verifies all
+membership/test-lock hashes, and publishes one canonical feature matrix with
+per-column lineage. Run the database-independent contract check with:
+
+    warranty-model phase7-contract-check
+
+Phase 7 generated feature matrices, manifests, diagnostics, and reports remain
+local ignored outputs. The target is sealed for Phase 15; text and repair
+details remain deferred.

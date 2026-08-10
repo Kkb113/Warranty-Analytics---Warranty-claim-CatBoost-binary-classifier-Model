@@ -1,0 +1,12 @@
+structured_features:
+  windows_months: [3, 6, 12, 24]
+  include_all_history: true
+  std_min_observations: 2
+  slope_min_observations: 3
+  ratio_zero_denominator: null
+  categorical_mode_tie_break: lexical
+  output_directory: artifacts/structured_features
+  report_directory: reports/phase7_structured_features
+  compression: snappy
+  write_manifest: true
+  validate_after_build: true

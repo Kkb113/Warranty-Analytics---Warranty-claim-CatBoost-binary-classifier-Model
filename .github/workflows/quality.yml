@@ -47,3 +47,6 @@ jobs:
 
       - name: Validate Phase 6 split contract offline
         run: warranty-model phase6-contract-check
+
+      - name: Validate Phase 7 structured feature contract offline
+        run: warranty-model phase7-contract-check
