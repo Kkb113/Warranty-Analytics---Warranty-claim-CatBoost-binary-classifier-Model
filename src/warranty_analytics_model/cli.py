@@ -266,6 +266,46 @@ def build_parser() -> argparse.ArgumentParser:
     phase8_validate.add_argument(
         "--text-dir", type=Path, required=True, help="Phase 8 text run directory."
     )
+    subparsers.add_parser(
+        "phase9-contract-check",
+        help="Validate the Phase 9 baseline-model contract and fixed configuration offline.",
+    )
+    phase9_plan = subparsers.add_parser(
+        "phase9-plan-check",
+        help="Validate the exact Phase 5/6/7/8 chain without loading targets or training.",
+    )
+    phase9_train = subparsers.add_parser(
+        "phase9-train",
+        help="Train fixed CatBoost baselines using TRAIN and evaluate on VALIDATION only.",
+    )
+    for phase9_parser in (phase9_plan, phase9_train):
+        phase9_parser.add_argument(
+            "--mart-dir", type=Path, required=True, help="Locked Phase 5 run."
+        )
+        phase9_parser.add_argument(
+            "--split-dir", type=Path, required=True, help="Locked Phase 6 run."
+        )
+        phase9_parser.add_argument(
+            "--structured-dir", type=Path, required=True, help="Locked Phase 7 run."
+        )
+        phase9_parser.add_argument(
+            "--text-dir", type=Path, required=True, help="Locked Phase 8 run."
+        )
+    phase9_train.add_argument("--output-dir", type=Path, help="Phase 9 artifact root override.")
+    phase9_train.add_argument("--report-dir", type=Path, help="Phase 9 report root override.")
+    phase9_train.add_argument("--run-id", help="Explicit immutable Phase 9 run identifier.")
+    phase9_train.add_argument(
+        "--overwrite", action="store_true", help="Replace the named local run."
+    )
+    phase9_train.add_argument(
+        "--no-report", action="store_true", help="Do not write aggregate reports."
+    )
+    phase9_validate = subparsers.add_parser(
+        "phase9-validate", help="Reload and validate an existing Phase 9 model run offline."
+    )
+    phase9_validate.add_argument(
+        "--model-dir", type=Path, required=True, help="Phase 9 model run directory."
+    )
     return parser
 
 
@@ -1072,6 +1112,88 @@ def _run_phase8_validate(arguments: argparse.Namespace) -> int:
     return 0 if not validation.get("errors") else 1
 
 
+def _run_phase9_contract_check() -> int:
+    try:
+        from .baseline_model.runner import phase9_contract_check
+
+        result = phase9_contract_check()
+    except Exception as exc:
+        print(f"Phase 9 contract check BLOCKED: {exc}", file=sys.stderr)
+        return 1
+    print(f"Phase 9 contract check: {result.get('status', 'BLOCKED')}")
+    print(f"Contract SHA-256: {result.get('contract_checksum', '-')}")
+    for error in result.get("errors", []):
+        print(f"ERROR: {error}")
+    for warning in result.get("warnings", []):
+        print(f"WARNING: {warning}")
+    return 0 if result.get("valid") else 1
+
+
+def _run_phase9_plan_check(arguments: argparse.Namespace) -> int:
+    try:
+        from .baseline_model.input import phase9_plan_check
+
+        result = phase9_plan_check(
+            arguments.mart_dir, arguments.split_dir, arguments.structured_dir, arguments.text_dir
+        )
+    except Exception as exc:
+        print(f"Phase 9 plan check BLOCKED: {exc}", file=sys.stderr)
+        return 1
+    print(f"Phase 9 plan check: {result.get('status', 'BLOCKED')}")
+    inputs = result.get("inputs")
+    if inputs is not None:
+        print(f"Frozen population: {inputs.frozen_membership.get('counts', {})}")
+    for error in result.get("errors", []):
+        print(f"ERROR: {error}")
+    for warning in result.get("warnings", []):
+        print(f"WARNING: {warning}")
+    return 0 if result.get("valid") else 1
+
+
+def _run_phase9_train(arguments: argparse.Namespace) -> int:
+    try:
+        from .baseline_model.runner import build_phase9
+
+        result = build_phase9(
+            arguments.mart_dir,
+            arguments.split_dir,
+            arguments.structured_dir,
+            arguments.text_dir,
+            output_dir=arguments.output_dir,
+            report_dir=arguments.report_dir,
+            run_id=arguments.run_id,
+            overwrite=arguments.overwrite,
+            no_report=arguments.no_report,
+        )
+    except Exception as exc:
+        print(f"Phase 9 training BLOCKED: {exc}", file=sys.stderr)
+        return 1
+    print(f"Phase 9 status: {result.get('status', 'BLOCKED')}")
+    print(f"Model run directory: {result.get('run_directory', '-')}")
+    print(f"Development champion: {result.get('champion_experiment_id', '-')}")
+    if result.get("report_directory"):
+        print(f"Report directory: {result['report_directory']}")
+    for warning in result.get("warnings", []):
+        print(f"WARNING: {warning}")
+    return 0 if result.get("status") in {"PASS", "PASS WITH WARNINGS"} else 1
+
+
+def _run_phase9_validate(arguments: argparse.Namespace) -> int:
+    try:
+        from .baseline_model.runner import validate_existing_model_run
+
+        result = validate_existing_model_run(arguments.model_dir)
+    except Exception as exc:
+        print(f"Phase 9 validation BLOCKED: {exc}", file=sys.stderr)
+        return 1
+    print(f"Phase 9 validation: {result.get('status', 'BLOCKED')}")
+    for error in result.get("errors", []):
+        print(f"ERROR: {error}")
+    for warning in result.get("warnings", []):
+        print(f"WARNING: {warning}")
+    return 0 if result.get("valid") else 1
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run one supported CLI command."""
 
@@ -1127,6 +1249,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_phase8_build(arguments)
     if arguments.command == "phase8-validate":
         return _run_phase8_validate(arguments)
+    if arguments.command == "phase9-contract-check":
+        return _run_phase9_contract_check()
+    if arguments.command == "phase9-plan-check":
+        return _run_phase9_plan_check(arguments)
+    if arguments.command == "phase9-train":
+        return _run_phase9_train(arguments)
+    if arguments.command == "phase9-validate":
+        return _run_phase9_validate(arguments)
     if arguments.command in {"data-profile", "synthetic-audit", "data-quality-check", "phase3-run"}:
         return _run_phase3(arguments)
     parser.error(f"Unsupported command: {arguments.command}")

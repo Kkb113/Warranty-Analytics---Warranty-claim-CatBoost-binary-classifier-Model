@@ -33,6 +33,9 @@ serves inference.
 - text_features/: Phase 8 historical text documents and deterministic lexical
   aggregates, source-policy lineage, manifests, quality diagnostics, and
   offline validation.
+- baseline_model/: Phase 9 fixed experiment definitions, adapters, CatBoost
+  training, validation-only metrics, manifests, reporting, and model reload
+  validation.
 - models/: Phase 5 and later boundary for training and model artifacts.
 - evaluation/: Phase 5 and later boundary for metrics and calibration.
 - inference/: Phase 5 and later boundary for inference; no inference exists in
@@ -140,7 +143,8 @@ settings.
 - Phase 8: historical text feature development from prior failure descriptions;
   current-claim narratives, identifiers, costs, targets, and text models remain
   prohibited. The output is a companion artifact to Phase 7.
-- Phase 9: baseline model training.
+- Phase 9: fixed CatBoost baseline training on TRAIN and champion selection on
+  VALIDATION. TEST labels, predictions, and metrics remain sealed for Phase 15.
 - Later phases: evaluation, calibration, inference, and monitoring.
 
 These boundaries preserve the Phase 0 contract and prevent infrastructure work

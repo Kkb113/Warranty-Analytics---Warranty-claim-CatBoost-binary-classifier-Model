@@ -119,3 +119,50 @@ def test_cli_phase3_commands_route_to_distinct_task_groups(
         assert calls[-1] == expected
 
     assert cli.phase3_task_groups("data-profile") == ("data_profile",)
+
+
+def test_cli_phase9_commands_route_and_render(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(
+        "warranty_analytics_model.baseline_model.runner.phase9_contract_check",
+        lambda: {
+            "status": "PASS",
+            "valid": True,
+            "contract_checksum": "sha",
+            "errors": [],
+            "warnings": [],
+        },
+    )
+    assert main(["phase9-contract-check"]) == 0
+    monkeypatch.setattr(
+        "warranty_analytics_model.baseline_model.input.phase9_plan_check",
+        lambda *args: {
+            "status": "PASS",
+            "valid": True,
+            "errors": [],
+            "warnings": [],
+            "inputs": None,
+        },
+    )
+    common = ["--mart-dir", "p5", "--split-dir", "p6", "--structured-dir", "p7", "--text-dir", "p8"]
+    assert main(["phase9-plan-check", *common]) == 0
+    monkeypatch.setattr(
+        "warranty_analytics_model.baseline_model.runner.build_phase9",
+        lambda *args, **kwargs: {
+            "status": "PASS WITH WARNINGS",
+            "run_directory": "models",
+            "champion_experiment_id": "E3",
+            "report_directory": "reports",
+            "warnings": ["POC"],
+        },
+    )
+    assert main(["phase9-train", *common]) == 0
+    monkeypatch.setattr(
+        "warranty_analytics_model.baseline_model.runner.validate_existing_model_run",
+        lambda path: {"status": "PASS", "valid": True, "errors": [], "warnings": []},
+    )
+    assert main(["phase9-validate", "--model-dir", "models"]) == 0
+    output = capsys.readouterr().out
+    assert "Development champion: E3" in output
+    assert "Phase 9 validation: PASS" in output

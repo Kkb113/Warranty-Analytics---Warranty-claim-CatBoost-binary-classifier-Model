@@ -7,7 +7,7 @@ From the repository root:
     py -3.11 -m venv .venv
     .\.venv\Scripts\Activate.ps1
     python -m pip install --upgrade pip
-    python -m pip install -e ".[dev,database,profiling,mart]"
+    python -m pip install -e ".[dev,database,profiling,mart,modeling]"
 
 Select the development environment explicitly when needed:
 
@@ -23,7 +23,7 @@ selected for a command with:
     python3.11 -m venv .venv
     . .venv/bin/activate
     python -m pip install --upgrade pip
-    python -m pip install -e ".[dev,database,profiling,mart]"
+    python -m pip install -e ".[dev,database,profiling,mart,modeling]"
 
 The package also supports the platform's Python 3.11 launcher where available.
 
@@ -77,6 +77,10 @@ output into tickets or logs if local environment metadata is sensitive.
     python -m warranty_analytics_model phase8-plan-check --mart-dir artifacts/feature_mart/<run_id> --split-dir artifacts/splits/<run_id> --structured-dir artifacts/structured_features/<run_id>
     python -m warranty_analytics_model phase8-build --mart-dir artifacts/feature_mart/<run_id> --split-dir artifacts/splits/<run_id> --structured-dir artifacts/structured_features/<run_id>
     python -m warranty_analytics_model phase8-validate --text-dir artifacts/text_features/<run_id>
+    python -m warranty_analytics_model phase9-contract-check
+    python -m warranty_analytics_model phase9-plan-check --mart-dir <phase5> --split-dir <phase6> --structured-dir <phase7> --text-dir <phase8>
+    python -m warranty_analytics_model phase9-train --mart-dir <phase5> --split-dir <phase6> --structured-dir <phase7> --text-dir <phase8>
+    python -m warranty_analytics_model phase9-validate --model-dir artifacts/baseline_models/<run_id>
     python -m ruff check .
     python -m ruff format --check .
     python -m mypy src
@@ -151,3 +155,9 @@ and hardened Phase 7 artifact have completed. Run `phase8-contract-check`,
 inputs. Historical documents, lexical features, manifests, diagnostics, and
 aggregate-only reports are generated locally under ignored
 `artifacts/text_features/` and `reports/phase8_text_features/` directories.
+
+Phase 9 is also offline. Install the `modeling` extra, run the Phase 9 contract
+and plan gates against the exact Phase 5–8 directories, then train. Models fit
+on TRAIN only and are evaluated on VALIDATION only. Generated `.cbm` files,
+validation-only predictions, manifests, and aggregate reports remain ignored;
+the TEST target is not read.

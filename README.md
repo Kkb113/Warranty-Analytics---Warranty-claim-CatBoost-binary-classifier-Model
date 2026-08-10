@@ -7,7 +7,7 @@ unresolved business and availability questions are not inferred by code.
 
 ## Current status
 
-Current phase: **Phase 8 — Text Feature Development**.
+Current phase: **Phase 9 — Baseline Model Training**.
 
 Phase 0 model-contract, Phase 1 scaffolding, Phase 2 read-only data access /
 schema validation, and the Phase 3 live profiling run are complete. The live
@@ -40,7 +40,7 @@ reports/phase4_validation/20260810T101935Z/.
 
 ## Local setup
 
-    python -m pip install -e ".[dev,database,profiling,mart]"
+    python -m pip install -e ".[dev,database,profiling,mart,modeling]"
 
 The optional `.env` file is local-only. Copy `.env.example` to `.env` and set
 live database values only through a secure local environment. Never commit
@@ -75,6 +75,10 @@ credentials or database exports.
     warranty-model phase8-plan-check --mart-dir artifacts/feature_mart/<run_id> --split-dir artifacts/splits/<run_id> --structured-dir artifacts/structured_features/<run_id>
     warranty-model phase8-build --mart-dir artifacts/feature_mart/<run_id> --split-dir artifacts/splits/<run_id> --structured-dir artifacts/structured_features/<run_id>
     warranty-model phase8-validate --text-dir artifacts/text_features/<run_id>
+    warranty-model phase9-contract-check
+    warranty-model phase9-plan-check --mart-dir artifacts/feature_mart/<run_id> --split-dir artifacts/splits/<run_id> --structured-dir artifacts/structured_features/<run_id> --text-dir artifacts/text_features/<run_id>
+    warranty-model phase9-train --mart-dir artifacts/feature_mart/<run_id> --split-dir artifacts/splits/<run_id> --structured-dir artifacts/structured_features/<run_id> --text-dir artifacts/text_features/<run_id>
+    warranty-model phase9-validate --model-dir artifacts/baseline_models/<run_id>
 
 Phase 3 commands share the read-only extractor but select distinct task groups:
 `data-profile` runs profiling and target/category/missingness diagnostics,
@@ -129,6 +133,12 @@ the exact Phase 6 membership and TEST lock. The Phase 8 run is under
 `artifacts/text_features/20260810T_PHASE8/`; aggregate reports are under
 `reports/phase8_text_features/20260810T_PHASE8/`.
 
+Phase 9 baseline training is complete with **PASS WITH WARNINGS**. E0–E4 were
+evaluated on the frozen VALIDATION split only, E3 was selected as the
+development champion, and saved-model reload validation passed. No TEST target,
+prediction, or metric was accessed or generated. The local ignored run is under
+`artifacts/baseline_models/20260810T_PHASE9/`.
+
 ## Repository structure
 
 - `contracts/`: version-controlled schema contract and provenance notes.
@@ -155,6 +165,7 @@ the exact Phase 6 membership and TEST lock. The Phase 8 run is under
     warranty-model phase7-plan-check --mart-dir artifacts/feature_mart/<run_id> --split-dir artifacts/splits/<run_id>
     warranty-model phase8-contract-check
     warranty-model phase8-plan-check --mart-dir artifacts/feature_mart/<run_id> --split-dir artifacts/splits/<run_id> --structured-dir artifacts/structured_features/<run_id>
+    warranty-model phase9-contract-check
 
 CI runs these checks without credentials or SQL Server access. Live tests are
 opt-in only when `WARRANTY_RUN_DB_TESTS=true` and valid local settings exist.
@@ -183,6 +194,7 @@ by exact object name only; their contents are never read.
 - [Phase 6 train/validation/test split design](docs/phase_6_train_validation_test_split.md)
 - [Phase 7 structured feature engineering](docs/phase_7_structured_feature_engineering.md)
 - [Phase 8 text feature development](docs/phase_8_text_feature_development.md)
+- [Phase 9 baseline model training](docs/phase_9_baseline_model_training.md)
 - [Schema contract notes](contracts/README.md)
 - [Phase 1 scaffolding record](docs/phase_1_scaffolding.md)
 - [Contributing guide](CONTRIBUTING.md)

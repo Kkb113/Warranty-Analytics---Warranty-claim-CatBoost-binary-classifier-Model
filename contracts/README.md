@@ -89,3 +89,14 @@ Phase 8 uses strict prior-date as-of rules, deterministic document ordering,
 NFKC/whitespace/casefold normalization, and 6m/12m/24m/all windows. Its
 companion artifacts and aggregate-only reports are generated under ignored
 `artifacts/text_features/` and `reports/phase8_text_features/` directories.
+
+Phase 9 adds `baseline_model_contract_v1.yaml` and fixed technical settings in
+`configs/baseline_model.yaml`. The contract freezes experiments E0–E4,
+CatBoost parameters, model adapters, validation metrics, champion tie-breaks,
+and the Phase 15 TEST-target seal. Validate it offline with:
+
+    warranty-model phase9-contract-check
+
+Generated models, validation-only predictions, manifests, and aggregate reports
+remain local ignored outputs under `artifacts/baseline_models/` and
+`reports/phase9_baseline_models/`.

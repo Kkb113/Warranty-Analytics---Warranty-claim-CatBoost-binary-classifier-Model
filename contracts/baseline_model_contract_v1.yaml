@@ -1,0 +1,150 @@
+contract_version: "1.0.0"
+created_at: "2026-08-10T00:00:00Z"
+
+target_contract_checksum: "17f39d6abf71861bd9c9d7c514c1847cef08049a312988b1c4dec3b4b204c25b"
+feature_policy_checksum: "1b42aef48ddaedddaae9288cec2494fcce528788c6038f14668e767403e7c3c9"
+leakage_policy_checksum: "fda75d50c0e6fd06c59e04a0d7cfc3dad5080b1257870021c76aa6040140ec3e"
+phase5_mart_contract_checksum: "6e2650270c788dadb8ab46ddaf9e38f2940474d85cf959a96f168ab80c45855e"
+phase6_split_contract_checksum: "698ce73b4545d33b9ca8559dc899f6614d072139d476bf9c0a5f42bdde8d03f4"
+phase7_structured_feature_contract_checksum: "05d5d0d3c6adf38e0b0899e15625945633704e2568d861f76a23cb1a0710d02a"
+phase8_text_feature_contract_checksum: "392d95b81a498c84136a8b6b1927cdfd177dca3d3b028ac0d80353f73c3acc75"
+
+prediction_grain: "one row = one eligible warranty claim"
+target:
+  name: target__high_cost_claim_flag
+  source_artifact: claim_snapshot
+  source_phase: 5
+  reconstruction: prohibited
+allowed_target_splits: [TRAIN, VALIDATION]
+prohibited_target_splits: [TEST]
+
+baseline_experiments:
+  - id: E0
+    name: prevalence_baseline
+    model: constant_train_prevalence
+    champion_eligible: false
+  - id: E1
+    name: structured_core
+    model: CatBoostClassifier
+    phase7_tiers: [CORE]
+    phase8_types: []
+    champion_eligible: true
+  - id: E2
+    name: structured_all
+    model: CatBoostClassifier
+    phase7_tiers: [CORE, EXTENDED]
+    phase8_types: []
+    champion_eligible: true
+  - id: E3
+    name: structured_all_text_lexical
+    model: CatBoostClassifier
+    phase7_tiers: [CORE, EXTENDED]
+    phase8_types: [numeric, boolean]
+    champion_eligible: true
+  - id: E4
+    name: structured_all_native_historical_text
+    model: CatBoostClassifier
+    phase7_tiers: [CORE, EXTENDED]
+    phase8_types: [numeric, boolean, text]
+    champion_eligible: true
+    unavailable_policy: UNAVAILABLE_WITH_WARNING
+
+primary_metric: average_precision
+secondary_metrics:
+  - pr_auc_trapezoidal
+  - roc_auc
+  - log_loss
+  - brier_score
+  - accuracy_at_0_5
+  - precision_at_0_5
+  - recall_at_0_5
+  - f1_at_0_5
+  - specificity_at_0_5
+
+fixed_catboost_parameters:
+  loss_function: Logloss
+  iterations: 500
+  learning_rate: 0.05
+  depth: 6
+  l2_leaf_reg: 3.0
+  random_strength: 1.0
+  bootstrap_type: Bayesian
+  bagging_temperature: 1.0
+  random_seed: 20260810
+  task_type: CPU
+  thread_count: 1
+  allow_writing_files: false
+  verbose: false
+  use_best_model: false
+  eval_set: none
+  early_stopping: none
+
+categorical_adapter_policy:
+  representation: string
+  missing_value: __MISSING__
+  target_derived_mapping: false
+numeric_adapter_policy:
+  preserve_values: true
+  preserve_missing: true
+  imputation: none
+  scaling: none
+boolean_adapter_policy:
+  representation: zero_one_numeric
+  one_hot_encoding: false
+text_adapter_policy:
+  missing_value: __NO_HISTORY__
+  native_catboost: true
+  fit_scope: TRAIN_only
+  validation_vocabulary_prefit: false
+  source: prior_failure__failure_description
+
+class_imbalance_policy:
+  class_weights: none
+  auto_class_weights: none
+  scale_pos_weight: none
+  resampling: none
+threshold_policy:
+  optimization: none
+  descriptive_threshold: 0.5
+calibration_policy:
+  calibration: none
+feature_selection_policy:
+  feature_selection: none
+  feature_importance: none
+
+test_access_policy:
+  target_access_allowed: false
+  target_rows_loaded: 0
+  predictions_created: 0
+  metrics_computed: false
+  first_allowed_target_phase: 15
+reproducibility_policy:
+  random_seed: 20260810
+  task_type: CPU
+  thread_count: 1
+  deterministic_feature_order: lineage
+  repeated_fit_probability_tolerance: 1.0e-12
+  model_reload_probability_tolerance: 1.0e-12
+  champion_tolerance: 1.0e-6
+
+artifact_layout:
+  root: artifacts/baseline_models/<run_id>
+  models: models/*.cbm
+  validation_predictions: validation_predictions.parquet
+  validation_metrics: validation_metrics.json
+  feature_sets: feature_sets.json
+  model_input_schema: model_input_schema.json
+  target_access_audit: target_access_audit.json
+  experiment_manifest: experiment_manifest.json
+  model_manifest: model_manifest.json
+  validation: validation.json
+  reports: reports/phase9_baseline_models/<run_id>
+  generated_artifacts_git_ignored: true
+
+development_status:
+  development_mode: synthetic_poc
+  production_approved: false
+  real_data_reapproval_required: true
+  business_target_definition_confirmed: false
+  precise_submission_timestamp_available: false
+  historical_failure_description_versioning_confirmed: false

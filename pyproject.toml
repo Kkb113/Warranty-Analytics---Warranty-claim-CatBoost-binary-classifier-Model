@@ -38,6 +38,10 @@ mart = [
     "pandas>=2.0,<3",
     "pyarrow>=14.0,<20",
 ]
+modeling = [
+    "catboost>=1.2.10,<2",
+    "scikit-learn>=1.5,<2",
+]
 
 [project.scripts]
 warranty-model = "warranty_analytics_model.cli:main"
@@ -100,4 +104,12 @@ strict = true
 
 [[tool.mypy.overrides]]
 module = ["pandas", "pandas.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["catboost", "catboost.*", "sklearn", "sklearn.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["pyarrow", "pyarrow.*"]
 ignore_missing_imports = true
