@@ -39,7 +39,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         prog="warranty-model",
-        description="Infrastructure, Phase 2 schema, and Phase 3 data diagnostics for the warranty analytics project.",
+        description="Infrastructure, Phase 2 schema, Phase 3 diagnostics, and Phase 4 policy enforcement for the warranty analytics project.",
     )
     subparsers = parser.add_subparsers(dest="command")
     subparsers.add_parser("doctor", help="Validate Phase 1 infrastructure only.")
@@ -98,6 +98,25 @@ def build_parser() -> argparse.ArgumentParser:
             action="store_true",
             help="Return a non-zero status when Phase 3 records ERROR findings.",
         )
+    subparsers.add_parser(
+        "phase4-contract-check",
+        help="Validate Phase 4 target, feature-availability, and leakage contracts offline.",
+    )
+    phase4 = subparsers.add_parser(
+        "phase4-validate",
+        help="Run the live read-only Phase 4 target and policy audit.",
+    )
+    phase4.add_argument(
+        "--strict", action="store_true", help="Treat documented warnings as blocking."
+    )
+    phase4.add_argument("--output-dir", type=Path, help="Report root override.")
+    phase4.add_argument("--no-report", action="store_true", help="Do not write Phase 4 reports.")
+    phase4.add_argument(
+        "--format",
+        choices=("json", "markdown", "both"),
+        default="both",
+        help="Report format to write.",
+    )
     return parser
 
 
@@ -354,6 +373,132 @@ def _run_phase3(arguments: argparse.Namespace) -> int:
     return 0
 
 
+def _run_phase4_contract_check() -> int:
+    """Validate all Phase 4 contracts without database access."""
+
+    try:
+        from .policy.loader import load_phase4_contracts
+        from .policy.validator import validate_phase4_contracts
+
+        root = discover_repository_root()
+        schema_contract, schema_checksum = load_schema_contract(root)
+        bundle = load_phase4_contracts(root)
+        result = validate_phase4_contracts(
+            schema_contract,
+            bundle.target,
+            bundle.feature_policy,
+            bundle.leakage,
+            checksums={
+                "high_cost_target_v1.yaml": bundle.target_checksum,
+                "claim_time_feature_policy_v1.yaml": bundle.feature_policy_checksum,
+                "leakage_policy_v1.yaml": bundle.leakage_checksum,
+            },
+            schema_contract_checksum=schema_checksum,
+        )
+    except (SchemaContractError, ValueError) as exc:
+        print(f"Phase 4 contract error: {exc}", file=sys.stderr)
+        return 1
+    if not result.valid:
+        print("Phase 4 contract check BLOCKED")
+        for error in result.errors:
+            print(f"ERROR: {error}")
+        return 1
+    print(
+        "PASS: Phase 4 contracts "
+        f"cover {result.classified_columns}/{result.schema_columns} schema columns; "
+        f"Tier A={len(result.safe_baseline_allowlist)} "
+        f"Tier B={len(result.restricted_experimental_list)} "
+        f"requires_confirmation={len(result.requires_confirmation_list)}"
+    )
+    print(f"Target policy checksum: {result.target_checksum}")
+    print(f"Feature policy checksum: {result.feature_policy_checksum}")
+    print(f"Leakage policy checksum: {result.leakage_policy_checksum}")
+    for warning in result.warnings:
+        print(f"WARNING: {warning}")
+    return 0
+
+
+def _run_phase4_validate(arguments: argparse.Namespace) -> int:
+    """Run the live read-only Phase 4 target and policy audit."""
+
+    settings, status = _load_live_settings()
+    if settings is None:
+        return status
+    try:
+        from .policy.live import run_live_phase4
+        from .policy.loader import load_phase4_contracts
+        from .policy.reporting import write_phase4_reports
+
+        root = discover_repository_root()
+        schema_contract, schema_checksum = load_schema_contract(root)
+        bundle = load_phase4_contracts(root)
+        check_database_connection(settings.database)
+        live = collect_schema_metadata(settings.database, schema_contract)
+        schema_result = validate_schema(
+            schema_contract,
+            live,
+            schema_checksum,
+            environment=settings.environment,
+            strict=arguments.strict,
+            server=settings.database.server,
+        )
+        result = run_live_phase4(
+            settings,
+            schema_contract,
+            bundle,
+            schema_validation=schema_result.model_dump(mode="json"),
+            schema_contract_checksum=schema_checksum,
+        )
+        report_paths: list[Path] = []
+        if not arguments.no_report:
+            project_paths = resolve_project_paths(root, report_dir=settings.report_dir)
+            output_root = arguments.output_dir or project_paths.report_dir / "phase4_validation"
+            formats = ("json", "markdown") if arguments.format == "both" else (arguments.format,)
+            report_paths = write_phase4_reports(
+                result,
+                bundle.feature_policy,
+                bundle.leakage,
+                output_root,
+                formats,
+            )
+    except ConfigurationError as exc:
+        print(f"Configuration error: {exc}", file=sys.stderr)
+        return 2
+    except SchemaContractError as exc:
+        print(f"Schema contract error: {exc}", file=sys.stderr)
+        return 1
+    except DatabaseConfigurationError as exc:
+        print(f"Database configuration error: {exc}", file=sys.stderr)
+        return 2
+    except DatabaseDriverError as exc:
+        print(f"Database driver error: {exc}", file=sys.stderr)
+        return 3
+    except DatabaseConnectionError as exc:
+        print(f"Database connection error: {exc}", file=sys.stderr)
+        return 3
+    except (UnexpectedDatabaseError, RuntimeError, ValueError) as exc:
+        print(f"Phase 4 execution error: {exc}", file=sys.stderr)
+        return 4
+    except Exception as exc:
+        print(f"Unexpected Phase 4 error: {exc}", file=sys.stderr)
+        return 4
+
+    target = result.target_validation
+    print(f"Phase 4 status: {result.status}")
+    print(f"Target: {target.get('target_name', '-')}")
+    print(f"Claims: {target.get('total_claims', 0)}; eligible: {target.get('eligible_claims', 0)}")
+    print(f"Positive prevalence: {target.get('positive_percentage', 0.0)}%")
+    print(
+        f"Policy coverage: {result.contract_validation.classified_columns}/{result.contract_validation.schema_columns}"
+    )
+    print(f"Errors: {len(result.errors)}; warnings: {len(result.warnings)}")
+    for report_path in report_paths:
+        print(f"Report: {report_path}")
+    if result.errors or (arguments.strict and result.warnings):
+        return 1
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run one supported CLI command."""
 
@@ -375,6 +520,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_db_check()
     if arguments.command == "schema-validate":
         return _run_schema_validate(arguments)
+    if arguments.command == "phase4-contract-check":
+        return _run_phase4_contract_check()
+    if arguments.command == "phase4-validate":
+        return _run_phase4_validate(arguments)
     if arguments.command in {"data-profile", "synthetic-audit", "data-quality-check", "phase3-run"}:
         return _run_phase3(arguments)
     parser.error(f"Unsupported command: {arguments.command}")

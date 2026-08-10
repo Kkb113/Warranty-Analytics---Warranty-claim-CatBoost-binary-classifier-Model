@@ -23,7 +23,7 @@ selected for a command with:
     python3.11 -m venv .venv
     . .venv/bin/activate
     python -m pip install --upgrade pip
-    python -m pip install -e ".[dev,database]"
+    python -m pip install -e ".[dev,database,profiling]"
 
 The package also supports the platform's Python 3.11 launcher where available.
 
@@ -60,6 +60,8 @@ output into tickets or logs if local environment metadata is sensitive.
     python -m warranty_analytics_model synthetic-audit
     python -m warranty_analytics_model data-quality-check
     python -m warranty_analytics_model phase3-run --no-charts
+    python -m warranty_analytics_model phase4-contract-check
+    python -m warranty_analytics_model phase4-validate
     python -m ruff check .
     python -m ruff format --check .
     python -m mypy src
@@ -103,3 +105,10 @@ pyproject.toml and configs/.
 Check that configs/base.yaml, configs/development.yaml, and configs/test.yaml
 exist. WARRANTY_MODEL_ENV must be development or test. Secret-bearing settings
 are not allowed in YAML; use local environment variables instead.
+
+Phase 4 contract validation is offline and database-independent. It validates the
+stored target, all 209 field-policy entries, historical as-of rules, allowlists,
+lineage metadata, and the hard leakage blacklist. Phase 4 live validation is
+read-only and uses the existing local SQL Server configuration; it never creates
+a feature mart or writes business data. Reports are generated under
+reports/phase4_validation/ and contain aggregate policy and eligibility results only.

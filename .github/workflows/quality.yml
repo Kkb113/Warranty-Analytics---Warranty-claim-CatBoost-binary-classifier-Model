@@ -38,3 +38,6 @@ jobs:
 
       - name: Validate schema contract offline
         run: warranty-model schema-contract-check
+
+      - name: Validate Phase 4 policy contracts offline
+        run: warranty-model phase4-contract-check

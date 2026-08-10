@@ -1,0 +1,1123 @@
+contract_version: 1.0.0
+version: 1.0.0
+created_at: "2026-08-10"
+schema_contract_version: 1.0.0
+schema_contract_checksum: 00f86ec9db8ea84d88ea53d3a95d5df4e9a455d9555013d089026a399660cb06
+source_documents:
+  - docs/model_contract.md
+  - docs/phase_0_open_questions.md
+  - docs/phase_3_data_profiling_and_synthetic_audit.md
+  - contracts/warranty_analytics_schema_v1.yaml
+development_status:
+  development_mode: synthetic_poc
+  production_approved: false
+  real_data_reapproval_required: true
+  business_target_definition_confirmed: false
+  generator_source_confirmed: false
+  exact_submission_timestamp_available: false
+policy_defaults:
+  target: &target_defaults
+    role: target
+    availability_basis: stored_supervised_label
+    as_of_rule: target_only
+    leakage_risks: [target_leakage, synthetic_generator_leakage]
+    synthetic_poc_allowed: false
+    production_approved: false
+    reason: Stored label is used only as the supervised target and never as an input.
+    evidence_source: Phase 4 target and leakage contract
+    notes: Do not derive or proxy this field from outcome cost.
+    is_model_feature: false
+    is_lineage: false
+  control: &control_defaults
+    role: identifier_or_control
+    availability_basis: join_lineage_audit_only
+    as_of_rule: not_applicable
+    leakage_risks: [identifier_leakage]
+    synthetic_poc_allowed: false
+    production_approved: false
+    reason: Retain only for joins, lineage, auditing, or future split control.
+    evidence_source: Phase 4 identifier and lineage policy
+    notes: Control metadata is never a learned feature.
+    is_model_feature: false
+    is_lineage: true
+  baseline: &baseline_defaults
+    role: claim_time_descriptive_feature
+    availability_basis: available_at_initial_claim_submission_assumption
+    as_of_rule: claim_submission_reference
+    leakage_risks: [temporal_leakage_if_revised]
+    synthetic_poc_allowed: true
+    production_approved: false
+    reason: Provisionally allowed for synthetic POC under the claim-time contract only.
+    evidence_source: Phase 0 model contract and Phase 4 policy
+    notes: Production use requires data-owner confirmation and real-data reapproval.
+    is_model_feature: true
+    is_lineage: false
+  historical: &historical_defaults
+    role: historical_claim_time_feature
+    availability_basis: historical_source_record
+    as_of_rule: strict_before_source_event_date
+    leakage_risks: [temporal_leakage, same_day_leakage]
+    synthetic_poc_allowed: true
+    production_approved: false
+    reason: Allowed only after the source-specific historical as-of rule is enforced.
+    evidence_source: Phase 4 historical source policy
+    notes: Phase 5 must preserve the source rule and same-day exclusion.
+    is_model_feature: true
+    is_lineage: false
+  restricted: &restricted_defaults
+    role: restricted_group_or_governance_feature
+    availability_basis: requires_controlled_evaluation
+    as_of_rule: controlled_evaluation_only
+    leakage_risks: [group_leakage, identifier_leakage, governance_risk]
+    synthetic_poc_allowed: false
+    production_approved: false
+    reason: Isolated from Tier A and eligible only for separately governed evaluation.
+    evidence_source: Phase 3 synthetic audit and Phase 4 group policy
+    notes: Preserve for later group-aware evaluation; do not add silently to the baseline.
+    is_model_feature: false
+    is_lineage: false
+  confirmation: &confirmation_defaults
+    role: unresolved_availability_or_governance
+    availability_basis: timing_or_business_meaning_unconfirmed
+    as_of_rule: unavailable_until_confirmed
+    leakage_risks: [temporal_leakage, governance_risk]
+    synthetic_poc_allowed: false
+    production_approved: false
+    reason: Excluded until claim-submission availability and business meaning are confirmed.
+    evidence_source: Phase 0 open questions and Phase 4 policy
+    notes: Do not guess; a policy revision with an explicit version increment is required.
+    is_model_feature: false
+    is_lineage: false
+  prohibited: &prohibited_defaults
+    role: outcome_or_leakage_field
+    availability_basis: post_outcome_or_direct_leakage
+    as_of_rule: never_allowed
+    leakage_risks: [direct_leakage, temporal_leakage]
+    synthetic_poc_allowed: false
+    production_approved: false
+    reason: Prohibited from the target feature set under the current contract.
+    evidence_source: Phase 3 leakage audit and Phase 4 leakage policy
+    notes: This prohibition applies to current-claim and derived uses.
+    is_model_feature: false
+    is_lineage: false
+feature_policy_enum:
+  - TARGET_ONLY
+  - CONTROL_ONLY
+  - ALLOW_BASELINE_POC
+  - ALLOW_HISTORICAL_POC
+  - RESTRICTED_EXPERIMENTAL
+  - REQUIRES_CONFIRMATION
+  - PROHIBITED
+prediction_time_policy:
+  reference_column: claim_date
+  reference_precision: date_only
+  reference_status: provisional_date_level_reference
+  event_date_comparison: "<"
+  event_rule: strict_before_date_policy
+  same_day_default: exclude
+  telemetry_completed_month_rule: end_of_month(month_start_date) < claim_date
+same_day_policy:
+  default: exclude
+  rule: event_date must be strictly earlier than claim_date
+  rationale: Date-only columns cannot prove same-day event ordering.
+  future_revision_condition: Precise event and submission timestamps with an approved process rule.
+historical_sources:
+  telemetry:
+    source_table: dbo.fact_telemetry_monthly
+    event_date_column: month_start_date
+    qualification_rule: end_of_month(month_start_date) < claim_date
+    same_day_policy: exclude
+    current_record_exclusion: The month containing claim_date is excluded.
+    completion_gate: Monthly aggregate must represent a completed month.
+    notes: month_start_date < claim_date alone is not sufficient.
+  maintenance:
+    source_table: dbo.fact_maintenance_event
+    event_date_column: maintenance_date
+    qualification_rule: maintenance_date < claim_date
+    same_day_policy: exclude
+    current_record_exclusion: Same-day maintenance is excluded.
+    notes: Missing maintenance history does not make a claim ineligible.
+  service:
+    source_table: dbo.fact_service_event
+    event_date_column: service_date
+    qualification_rule: service_date < claim_date
+    same_day_policy: exclude
+    current_record_exclusion: service_event_key != current_claim.service_event_key
+    notes: Current claim-linked service fields are not baseline-approved.
+  repair:
+    source_table: dbo.fact_repair_line
+    event_date_column: null
+    qualification_rule: repair_line.warranty_claim_key != current_claim.warranty_claim_key and prior_claim.repair_end_date < claim_date
+    same_day_policy: exclude
+    current_record_exclusion: Current-claim repair lines are prohibited.
+    completion_gate: Prior repair completion must be proven; otherwise do not use the line.
+    notes: This source has no independent repair-line date.
+  prior_claim:
+    source_table: dbo.fact_warranty_claim
+    event_date_column: claim_date
+    qualification_rule: prior_claim.claim_date < claim_date; outcome fields require prior_claim.repair_end_date < claim_date
+    same_day_policy: exclude
+    current_record_exclusion: prior_claim.warranty_claim_key != current_claim.warranty_claim_key
+    completion_gate: Prior outcome fields require completion before the current claim date.
+    notes: Prior submission fields and prior outcomes have different availability rules.
+  component_installation:
+    source_table: dbo.fact_component_installation
+    event_date_column: installed_date
+    qualification_rule: installed_date < claim_date
+    same_day_policy: exclude
+    current_record_exclusion: Do not require current claim causal_component_key.
+    notes: Build truck-level history from pre-claim installations without current diagnosis.
+feature_tiers:
+  tier_a_safe_baseline:
+    description: Only direct or historical fields with explicit claim-time availability and no unresolved or restricted status.
+    included_policies: [ALLOW_BASELINE_POC, ALLOW_HISTORICAL_POC]
+    requires_as_of_enforcement: true
+    restricted_evaluation_only: false
+  tier_b_restricted_experimental:
+    description: High-cardinality, mutable, synthetic-risk, or governance-sensitive fields for isolated evaluation only.
+    included_policies: [RESTRICTED_EXPERIMENTAL]
+    requires_as_of_enforcement: true
+    restricted_evaluation_only: true
+lineage_fields:
+  - dbo.fact_warranty_claim.warranty_claim_key
+  - dbo.fact_warranty_claim.claim_date
+  - dbo.fact_warranty_claim.truck_key
+  - dbo.dim_truck.truck_model_key
+  - dbo.dim_truck.manufacturing_plant
+  - dbo.dim_truck.assembly_line
+  - dbo.dim_truck.production_batch_id
+  - dbo.fact_warranty_claim.service_center_key
+  - dbo.dim_supplier.supplier_key
+  - dbo.fact_component_installation.component_lot_no
+  - duplicate_scenario_fingerprint
+  - feature_policy_version
+  - target_contract_version
+excluded_tables:
+  - dbo.ml_region_terrain_warranty_risk_dataset
+  - dbo.ml_truck_failure_risk_dataset
+  - dbo.ml_truck_region_terrain_failure_risk_dataset
+field_policies:
+  - <<: *control_defaults
+    table: dbo.dim_component
+    column: component_key
+    policy: CONTROL_ONLY
+  - <<: *control_defaults
+    table: dbo.dim_component
+    column: component_id
+    policy: CONTROL_ONLY
+  - <<: *restricted_defaults
+    table: dbo.dim_component
+    column: component_name
+    policy: RESTRICTED_EXPERIMENTAL
+  - <<: *historical_defaults
+    table: dbo.dim_component
+    column: component_system
+    policy: ALLOW_HISTORICAL_POC
+    as_of_rule: installed_date < claim_date
+  - <<: *historical_defaults
+    table: dbo.dim_component
+    column: component_category
+    policy: ALLOW_HISTORICAL_POC
+    as_of_rule: installed_date < claim_date
+  - <<: *historical_defaults
+    table: dbo.dim_component
+    column: standard_life_miles
+    policy: ALLOW_HISTORICAL_POC
+    as_of_rule: installed_date < claim_date
+  - <<: *historical_defaults
+    table: dbo.dim_component
+    column: standard_life_months
+    policy: ALLOW_HISTORICAL_POC
+    as_of_rule: installed_date < claim_date
+  - <<: *historical_defaults
+    table: dbo.dim_component
+    column: is_safety_critical
+    policy: ALLOW_HISTORICAL_POC
+    as_of_rule: installed_date < claim_date
+  - <<: *historical_defaults
+    table: dbo.dim_component
+    column: unit_cost
+    policy: ALLOW_HISTORICAL_POC
+    as_of_rule: installed_date < claim_date
+  - <<: *control_defaults
+    table: dbo.dim_component
+    column: supplier_key
+    policy: CONTROL_ONLY
+  - <<: *control_defaults
+    table: dbo.dim_customer
+    column: customer_key
+    policy: CONTROL_ONLY
+  - <<: *control_defaults
+    table: dbo.dim_customer
+    column: customer_id
+    policy: CONTROL_ONLY
+  - <<: *control_defaults
+    table: dbo.dim_customer
+    column: customer_name
+    policy: CONTROL_ONLY
+  - <<: *confirmation_defaults
+    table: dbo.dim_customer
+    column: customer_type
+    policy: REQUIRES_CONFIRMATION
+  - <<: *confirmation_defaults
+    table: dbo.dim_customer
+    column: industry
+    policy: REQUIRES_CONFIRMATION
+  - <<: *confirmation_defaults
+    table: dbo.dim_customer
+    column: fleet_size
+    policy: REQUIRES_CONFIRMATION
+  - <<: *control_defaults
+    table: dbo.dim_customer
+    column: location_key
+    policy: CONTROL_ONLY
+  - <<: *confirmation_defaults
+    table: dbo.dim_customer
+    column: contract_type
+    policy: REQUIRES_CONFIRMATION
+  - <<: *confirmation_defaults
+    table: dbo.dim_customer
+    column: account_priority
+    policy: REQUIRES_CONFIRMATION
+  - <<: *control_defaults
+    table: dbo.dim_date
+    column: date_key
+    policy: CONTROL_ONLY
+  - <<: *control_defaults
+    table: dbo.dim_date
+    column: full_date
+    policy: CONTROL_ONLY
+    role: temporal_join_control
+  - <<: *baseline_defaults
+    table: dbo.dim_date
+    column: day_number
+    policy: ALLOW_BASELINE_POC
+  - <<: *baseline_defaults
+    table: dbo.dim_date
+    column: day_name
+    policy: ALLOW_BASELINE_POC
+  - <<: *baseline_defaults
+    table: dbo.dim_date
+    column: week_number
+    policy: ALLOW_BASELINE_POC
+  - <<: *baseline_defaults
+    table: dbo.dim_date
+    column: month_number
+    policy: ALLOW_BASELINE_POC
+  - <<: *baseline_defaults
+    table: dbo.dim_date
+    column: month_name
+    policy: ALLOW_BASELINE_POC
+  - <<: *baseline_defaults
+    table: dbo.dim_date
+    column: quarter_number
+    policy: ALLOW_BASELINE_POC
+  - <<: *baseline_defaults
+    table: dbo.dim_date
+    column: year_number
+    policy: ALLOW_BASELINE_POC
+  - <<: *baseline_defaults
+    table: dbo.dim_date
+    column: fiscal_month
+    policy: ALLOW_BASELINE_POC
+  - <<: *baseline_defaults
+    table: dbo.dim_date
+    column: fiscal_quarter
+    policy: ALLOW_BASELINE_POC
+  - <<: *baseline_defaults
+    table: dbo.dim_date
+    column: fiscal_year
+    policy: ALLOW_BASELINE_POC
+  - <<: *control_defaults
+    table: dbo.dim_failure_code
+    column: failure_code_key
+    policy: CONTROL_ONLY
+    current_claim_use: REQUIRES_CONFIRMATION
+  - <<: *historical_defaults
+    table: dbo.dim_failure_code
+    column: failure_code
+    policy: ALLOW_HISTORICAL_POC
+    as_of_rule: prior_claim.claim_date < claim_date
+    current_claim_use: REQUIRES_CONFIRMATION
+  - <<: *historical_defaults
+    table: dbo.dim_failure_code
+    column: failure_description
+    policy: ALLOW_HISTORICAL_POC
+    as_of_rule: prior_claim.claim_date < claim_date
+    current_claim_use: REQUIRES_CONFIRMATION
+  - <<: *historical_defaults
+    table: dbo.dim_failure_code
+    column: failure_system
+    policy: ALLOW_HISTORICAL_POC
+    as_of_rule: prior_claim.claim_date < claim_date
+    current_claim_use: REQUIRES_CONFIRMATION
+  - <<: *historical_defaults
+    table: dbo.dim_failure_code
+    column: failure_category
+    policy: ALLOW_HISTORICAL_POC
+    as_of_rule: prior_claim.claim_date < claim_date
+    current_claim_use: REQUIRES_CONFIRMATION
+  - <<: *historical_defaults
+    table: dbo.dim_failure_code
+    column: severity_level
+    policy: ALLOW_HISTORICAL_POC
+    as_of_rule: prior_claim.claim_date < claim_date
+    current_claim_use: REQUIRES_CONFIRMATION
+  - <<: *historical_defaults
+    table: dbo.dim_failure_code
+    column: safety_related_flag
+    policy: ALLOW_HISTORICAL_POC
+    as_of_rule: prior_claim.claim_date < claim_date
+    current_claim_use: REQUIRES_CONFIRMATION
+  - <<: *historical_defaults
+    table: dbo.dim_failure_code
+    column: recall_related_flag
+    policy: ALLOW_HISTORICAL_POC
+    as_of_rule: prior_claim.claim_date < claim_date
+    current_claim_use: REQUIRES_CONFIRMATION
+  - <<: *control_defaults
+    table: dbo.dim_location
+    column: location_key
+    policy: CONTROL_ONLY
+  - <<: *baseline_defaults
+    table: dbo.dim_location
+    column: country
+    policy: ALLOW_BASELINE_POC
+  - <<: *restricted_defaults
+    table: dbo.dim_location
+    column: state_province
+    policy: RESTRICTED_EXPERIMENTAL
+  - <<: *restricted_defaults
+    table: dbo.dim_location
+    column: city
+    policy: RESTRICTED_EXPERIMENTAL
+  - <<: *baseline_defaults
+    table: dbo.dim_location
+    column: region
+    policy: ALLOW_BASELINE_POC
+  - <<: *baseline_defaults
+    table: dbo.dim_location
+    column: climate_zone
+    policy: ALLOW_BASELINE_POC
+  - <<: *baseline_defaults
+    table: dbo.dim_location
+    column: terrain_type
+    policy: ALLOW_BASELINE_POC
+  - <<: *restricted_defaults
+    table: dbo.dim_location
+    column: latitude
+    policy: RESTRICTED_EXPERIMENTAL
+  - <<: *restricted_defaults
+    table: dbo.dim_location
+    column: longitude
+    policy: RESTRICTED_EXPERIMENTAL
+  - <<: *restricted_defaults
+    table: dbo.dim_service_center
+    column: service_center_key
+    policy: RESTRICTED_EXPERIMENTAL
+    is_lineage: true
+  - <<: *control_defaults
+    table: dbo.dim_service_center
+    column: service_center_id
+    policy: CONTROL_ONLY
+  - <<: *control_defaults
+    table: dbo.dim_service_center
+    column: service_center_name
+    policy: CONTROL_ONLY
+  - <<: *control_defaults
+    table: dbo.dim_service_center
+    column: location_key
+    policy: CONTROL_ONLY
+  - <<: *confirmation_defaults
+    table: dbo.dim_service_center
+    column: dealer_group
+    policy: REQUIRES_CONFIRMATION
+  - <<: *confirmation_defaults
+    table: dbo.dim_service_center
+    column: certified_level
+    policy: REQUIRES_CONFIRMATION
+  - <<: *confirmation_defaults
+    table: dbo.dim_service_center
+    column: avg_labor_rate
+    policy: REQUIRES_CONFIRMATION
+  - <<: *confirmation_defaults
+    table: dbo.dim_service_center
+    column: service_capacity
+    policy: REQUIRES_CONFIRMATION
+  - <<: *confirmation_defaults
+    table: dbo.dim_service_center
+    column: active_flag
+    policy: REQUIRES_CONFIRMATION
+  - <<: *control_defaults
+    table: dbo.dim_supplier
+    column: supplier_key
+    policy: CONTROL_ONLY
+  - <<: *control_defaults
+    table: dbo.dim_supplier
+    column: supplier_id
+    policy: CONTROL_ONLY
+  - <<: *control_defaults
+    table: dbo.dim_supplier
+    column: supplier_name
+    policy: CONTROL_ONLY
+  - <<: *restricted_defaults
+    table: dbo.dim_supplier
+    column: supplier_region
+    policy: RESTRICTED_EXPERIMENTAL
+  - <<: *restricted_defaults
+    table: dbo.dim_supplier
+    column: supplier_country
+    policy: RESTRICTED_EXPERIMENTAL
+  - <<: *restricted_defaults
+    table: dbo.dim_supplier
+    column: supplier_tier
+    policy: RESTRICTED_EXPERIMENTAL
+  - <<: *restricted_defaults
+    table: dbo.dim_supplier
+    column: quality_rating
+    policy: RESTRICTED_EXPERIMENTAL
+  - <<: *control_defaults
+    table: dbo.dim_supplier
+    column: contract_start_date
+    policy: CONTROL_ONLY
+    role: supplier_temporal_control
+  - <<: *restricted_defaults
+    table: dbo.dim_supplier
+    column: preferred_supplier_flag
+    policy: RESTRICTED_EXPERIMENTAL
+  - <<: *control_defaults
+    table: dbo.dim_truck
+    column: truck_key
+    policy: CONTROL_ONLY
+  - <<: *control_defaults
+    table: dbo.dim_truck
+    column: vin
+    policy: CONTROL_ONLY
+  - <<: *control_defaults
+    table: dbo.dim_truck
+    column: truck_model_key
+    policy: CONTROL_ONLY
+  - <<: *control_defaults
+    table: dbo.dim_truck
+    column: customer_key
+    policy: CONTROL_ONLY
+  - <<: *baseline_defaults
+    table: dbo.dim_truck
+    column: manufacturing_plant
+    policy: ALLOW_BASELINE_POC
+    is_lineage: true
+  - <<: *baseline_defaults
+    table: dbo.dim_truck
+    column: assembly_line
+    policy: ALLOW_BASELINE_POC
+    is_lineage: true
+  - <<: *restricted_defaults
+    table: dbo.dim_truck
+    column: production_batch_id
+    policy: RESTRICTED_EXPERIMENTAL
+    is_lineage: true
+  - <<: *baseline_defaults
+    table: dbo.dim_truck
+    column: build_date
+    policy: ALLOW_BASELINE_POC
+  - <<: *baseline_defaults
+    table: dbo.dim_truck
+    column: delivery_date
+    policy: ALLOW_BASELINE_POC
+  - <<: *baseline_defaults
+    table: dbo.dim_truck
+    column: in_service_date
+    policy: ALLOW_BASELINE_POC
+  - <<: *control_defaults
+    table: dbo.dim_truck
+    column: engine_serial_no
+    policy: CONTROL_ONLY
+  - <<: *control_defaults
+    table: dbo.dim_truck
+    column: transmission_serial_no
+    policy: CONTROL_ONLY
+  - <<: *baseline_defaults
+    table: dbo.dim_truck
+    column: axle_configuration
+    policy: ALLOW_BASELINE_POC
+  - <<: *baseline_defaults
+    table: dbo.dim_truck
+    column: fuel_type
+    policy: ALLOW_BASELINE_POC
+  - <<: *baseline_defaults
+    table: dbo.dim_truck
+    column: emission_standard
+    policy: ALLOW_BASELINE_POC
+  - <<: *control_defaults
+    table: dbo.dim_truck
+    column: warranty_policy_key
+    policy: CONTROL_ONLY
+  - <<: *confirmation_defaults
+    table: dbo.dim_truck
+    column: current_status
+    policy: REQUIRES_CONFIRMATION
+  - <<: *control_defaults
+    table: dbo.dim_truck_model
+    column: truck_model_key
+    policy: CONTROL_ONLY
+  - <<: *baseline_defaults
+    table: dbo.dim_truck_model
+    column: brand
+    policy: ALLOW_BASELINE_POC
+  - <<: *baseline_defaults
+    table: dbo.dim_truck_model
+    column: model_name
+    policy: ALLOW_BASELINE_POC
+  - <<: *baseline_defaults
+    table: dbo.dim_truck_model
+    column: model_year
+    policy: ALLOW_BASELINE_POC
+  - <<: *baseline_defaults
+    table: dbo.dim_truck_model
+    column: segment
+    policy: ALLOW_BASELINE_POC
+  - <<: *baseline_defaults
+    table: dbo.dim_truck_model
+    column: application_type
+    policy: ALLOW_BASELINE_POC
+  - <<: *baseline_defaults
+    table: dbo.dim_truck_model
+    column: cab_type
+    policy: ALLOW_BASELINE_POC
+  - <<: *baseline_defaults
+    table: dbo.dim_truck_model
+    column: engine_platform
+    policy: ALLOW_BASELINE_POC
+  - <<: *baseline_defaults
+    table: dbo.dim_truck_model
+    column: gvwr_class
+    policy: ALLOW_BASELINE_POC
+  - <<: *control_defaults
+    table: dbo.dim_warranty_policy
+    column: warranty_policy_key
+    policy: CONTROL_ONLY
+  - <<: *control_defaults
+    table: dbo.dim_warranty_policy
+    column: policy_id
+    policy: CONTROL_ONLY
+  - <<: *confirmation_defaults
+    table: dbo.dim_warranty_policy
+    column: policy_name
+    policy: REQUIRES_CONFIRMATION
+  - <<: *baseline_defaults
+    table: dbo.dim_warranty_policy
+    column: coverage_months
+    policy: ALLOW_BASELINE_POC
+  - <<: *baseline_defaults
+    table: dbo.dim_warranty_policy
+    column: coverage_miles
+    policy: ALLOW_BASELINE_POC
+  - <<: *baseline_defaults
+    table: dbo.dim_warranty_policy
+    column: coverage_engine_hours
+    policy: ALLOW_BASELINE_POC
+  - <<: *baseline_defaults
+    table: dbo.dim_warranty_policy
+    column: deductible_amount
+    policy: ALLOW_BASELINE_POC
+  - <<: *baseline_defaults
+    table: dbo.dim_warranty_policy
+    column: coverage_type
+    policy: ALLOW_BASELINE_POC
+  - <<: *control_defaults
+    table: dbo.dim_warranty_policy
+    column: effective_start_date
+    policy: CONTROL_ONLY
+    role: warranty_applicability_gate
+  - <<: *control_defaults
+    table: dbo.dim_warranty_policy
+    column: effective_end_date
+    policy: CONTROL_ONLY
+    role: warranty_applicability_gate
+    notes: Null means open-ended validity; do not replace it with an arbitrary date.
+  - <<: *control_defaults
+    table: dbo.fact_component_installation
+    column: installation_key
+    policy: CONTROL_ONLY
+  - <<: *control_defaults
+    table: dbo.fact_component_installation
+    column: truck_key
+    policy: CONTROL_ONLY
+  - <<: *control_defaults
+    table: dbo.fact_component_installation
+    column: component_key
+    policy: CONTROL_ONLY
+  - <<: *control_defaults
+    table: dbo.fact_component_installation
+    column: supplier_key
+    policy: CONTROL_ONLY
+  - <<: *control_defaults
+    table: dbo.fact_component_installation
+    column: component_serial_no
+    policy: CONTROL_ONLY
+  - <<: *restricted_defaults
+    table: dbo.fact_component_installation
+    column: component_lot_no
+    policy: RESTRICTED_EXPERIMENTAL
+    is_lineage: true
+  - <<: *control_defaults
+    table: dbo.fact_component_installation
+    column: installed_date
+    policy: CONTROL_ONLY
+    role: historical_as_of_gate
+    as_of_rule: installed_date < claim_date
+  - <<: *restricted_defaults
+    table: dbo.fact_component_installation
+    column: production_batch_id
+    policy: RESTRICTED_EXPERIMENTAL
+    is_lineage: true
+  - <<: *control_defaults
+    table: dbo.fact_component_installation
+    column: station_id
+    policy: CONTROL_ONLY
+  - <<: *control_defaults
+    table: dbo.fact_component_installation
+    column: inspector_id
+    policy: CONTROL_ONLY
+  - <<: *historical_defaults
+    table: dbo.fact_component_installation
+    column: quality_check_status
+    policy: ALLOW_HISTORICAL_POC
+    as_of_rule: installed_date < claim_date
+  - <<: *historical_defaults
+    table: dbo.fact_component_installation
+    column: rework_flag
+    policy: ALLOW_HISTORICAL_POC
+    as_of_rule: installed_date < claim_date
+  - <<: *historical_defaults
+    table: dbo.fact_component_installation
+    column: torque_value
+    policy: ALLOW_HISTORICAL_POC
+    as_of_rule: installed_date < claim_date
+  - <<: *historical_defaults
+    table: dbo.fact_component_installation
+    column: inspection_score
+    policy: ALLOW_HISTORICAL_POC
+    as_of_rule: installed_date < claim_date
+  - <<: *control_defaults
+    table: dbo.fact_maintenance_event
+    column: maintenance_event_key
+    policy: CONTROL_ONLY
+  - <<: *control_defaults
+    table: dbo.fact_maintenance_event
+    column: truck_key
+    policy: CONTROL_ONLY
+  - <<: *restricted_defaults
+    table: dbo.fact_maintenance_event
+    column: service_center_key
+    policy: RESTRICTED_EXPERIMENTAL
+    is_lineage: true
+  - <<: *control_defaults
+    table: dbo.fact_maintenance_event
+    column: maintenance_date
+    policy: CONTROL_ONLY
+    role: historical_as_of_gate
+    as_of_rule: maintenance_date < claim_date
+  - <<: *historical_defaults
+    table: dbo.fact_maintenance_event
+    column: odometer_miles
+    policy: ALLOW_HISTORICAL_POC
+    as_of_rule: maintenance_date < claim_date
+  - <<: *historical_defaults
+    table: dbo.fact_maintenance_event
+    column: engine_hours
+    policy: ALLOW_HISTORICAL_POC
+    as_of_rule: maintenance_date < claim_date
+  - <<: *historical_defaults
+    table: dbo.fact_maintenance_event
+    column: maintenance_type
+    policy: ALLOW_HISTORICAL_POC
+    as_of_rule: maintenance_date < claim_date
+  - <<: *historical_defaults
+    table: dbo.fact_maintenance_event
+    column: scheduled_flag
+    policy: ALLOW_HISTORICAL_POC
+    as_of_rule: maintenance_date < claim_date
+  - <<: *historical_defaults
+    table: dbo.fact_maintenance_event
+    column: completed_on_time_flag
+    policy: ALLOW_HISTORICAL_POC
+    as_of_rule: maintenance_date < claim_date
+  - <<: *historical_defaults
+    table: dbo.fact_maintenance_event
+    column: overdue_days
+    policy: ALLOW_HISTORICAL_POC
+    as_of_rule: maintenance_date < claim_date
+  - <<: *historical_defaults
+    table: dbo.fact_maintenance_event
+    column: maintenance_cost
+    policy: ALLOW_HISTORICAL_POC
+    as_of_rule: maintenance_date < claim_date
+  - <<: *confirmation_defaults
+    table: dbo.fact_maintenance_event
+    column: technician_notes
+    policy: REQUIRES_CONFIRMATION
+  - <<: *control_defaults
+    table: dbo.fact_repair_line
+    column: repair_line_key
+    policy: CONTROL_ONLY
+  - <<: *control_defaults
+    table: dbo.fact_repair_line
+    column: warranty_claim_key
+    policy: CONTROL_ONLY
+  - <<: *control_defaults
+    table: dbo.fact_repair_line
+    column: service_event_key
+    policy: CONTROL_ONLY
+  - <<: *control_defaults
+    table: dbo.fact_repair_line
+    column: component_key
+    policy: CONTROL_ONLY
+  - <<: *restricted_defaults
+    table: dbo.fact_repair_line
+    column: line_type
+    policy: RESTRICTED_EXPERIMENTAL
+    current_claim_use: PROHIBITED
+  - <<: *restricted_defaults
+    table: dbo.fact_repair_line
+    column: repair_action
+    policy: RESTRICTED_EXPERIMENTAL
+    current_claim_use: PROHIBITED
+  - <<: *restricted_defaults
+    table: dbo.fact_repair_line
+    column: part_no
+    policy: RESTRICTED_EXPERIMENTAL
+    current_claim_use: PROHIBITED
+  - <<: *restricted_defaults
+    table: dbo.fact_repair_line
+    column: part_quantity
+    policy: RESTRICTED_EXPERIMENTAL
+    current_claim_use: PROHIBITED
+  - <<: *restricted_defaults
+    table: dbo.fact_repair_line
+    column: part_unit_cost
+    policy: RESTRICTED_EXPERIMENTAL
+    current_claim_use: PROHIBITED
+  - <<: *restricted_defaults
+    table: dbo.fact_repair_line
+    column: labor_hours
+    policy: RESTRICTED_EXPERIMENTAL
+    current_claim_use: PROHIBITED
+  - <<: *restricted_defaults
+    table: dbo.fact_repair_line
+    column: labor_rate
+    policy: RESTRICTED_EXPERIMENTAL
+    current_claim_use: PROHIBITED
+  - <<: *restricted_defaults
+    table: dbo.fact_repair_line
+    column: line_cost
+    policy: RESTRICTED_EXPERIMENTAL
+    current_claim_use: PROHIBITED
+  - <<: *control_defaults
+    table: dbo.fact_repair_line
+    column: technician_id
+    policy: CONTROL_ONLY
+  - <<: *restricted_defaults
+    table: dbo.fact_repair_line
+    column: repair_notes
+    policy: RESTRICTED_EXPERIMENTAL
+    current_claim_use: PROHIBITED
+  - <<: *control_defaults
+    table: dbo.fact_service_event
+    column: service_event_key
+    policy: CONTROL_ONLY
+  - <<: *control_defaults
+    table: dbo.fact_service_event
+    column: service_event_id
+    policy: CONTROL_ONLY
+  - <<: *control_defaults
+    table: dbo.fact_service_event
+    column: truck_key
+    policy: CONTROL_ONLY
+  - <<: *restricted_defaults
+    table: dbo.fact_service_event
+    column: service_center_key
+    policy: RESTRICTED_EXPERIMENTAL
+    is_lineage: true
+  - <<: *control_defaults
+    table: dbo.fact_service_event
+    column: service_date
+    policy: CONTROL_ONLY
+    role: historical_as_of_gate
+    as_of_rule: service_date < claim_date
+  - <<: *historical_defaults
+    table: dbo.fact_service_event
+    column: odometer_miles
+    policy: ALLOW_HISTORICAL_POC
+    as_of_rule: service_date < claim_date and service_event_key != current_claim.service_event_key
+  - <<: *historical_defaults
+    table: dbo.fact_service_event
+    column: engine_hours
+    policy: ALLOW_HISTORICAL_POC
+    as_of_rule: service_date < claim_date and service_event_key != current_claim.service_event_key
+  - <<: *historical_defaults
+    table: dbo.fact_service_event
+    column: service_type
+    policy: ALLOW_HISTORICAL_POC
+    as_of_rule: service_date < claim_date and service_event_key != current_claim.service_event_key
+  - <<: *confirmation_defaults
+    table: dbo.fact_service_event
+    column: complaint_description
+    policy: REQUIRES_CONFIRMATION
+    notes: Current-claim complaint timing is not documented; no text embedding is created.
+  - <<: *confirmation_defaults
+    table: dbo.fact_service_event
+    column: diagnostic_summary
+    policy: REQUIRES_CONFIRMATION
+    notes: Diagnostic timing is unresolved and may be post-diagnosis.
+  - <<: *confirmation_defaults
+    table: dbo.fact_service_event
+    column: downtime_hours
+    policy: REQUIRES_CONFIRMATION
+  - <<: *confirmation_defaults
+    table: dbo.fact_service_event
+    column: roadside_assistance_flag
+    policy: REQUIRES_CONFIRMATION
+  - <<: *confirmation_defaults
+    table: dbo.fact_service_event
+    column: repeat_visit_flag
+    policy: REQUIRES_CONFIRMATION
+  - <<: *confirmation_defaults
+    table: dbo.fact_service_event
+    column: service_status
+    policy: REQUIRES_CONFIRMATION
+  - <<: *control_defaults
+    table: dbo.fact_telemetry_monthly
+    column: telemetry_month_key
+    policy: CONTROL_ONLY
+  - <<: *control_defaults
+    table: dbo.fact_telemetry_monthly
+    column: truck_key
+    policy: CONTROL_ONLY
+  - <<: *control_defaults
+    table: dbo.fact_telemetry_monthly
+    column: month_start_date
+    policy: CONTROL_ONLY
+    role: completed_month_as_of_gate
+    as_of_rule: end_of_month(month_start_date) < claim_date
+  - <<: *historical_defaults
+    table: dbo.fact_telemetry_monthly
+    column: mileage_month
+    policy: ALLOW_HISTORICAL_POC
+    as_of_rule: end_of_month(month_start_date) < claim_date
+  - <<: *historical_defaults
+    table: dbo.fact_telemetry_monthly
+    column: total_odometer_miles
+    policy: ALLOW_HISTORICAL_POC
+    as_of_rule: end_of_month(month_start_date) < claim_date
+  - <<: *historical_defaults
+    table: dbo.fact_telemetry_monthly
+    column: engine_hours_month
+    policy: ALLOW_HISTORICAL_POC
+    as_of_rule: end_of_month(month_start_date) < claim_date
+  - <<: *historical_defaults
+    table: dbo.fact_telemetry_monthly
+    column: idle_hours_month
+    policy: ALLOW_HISTORICAL_POC
+    as_of_rule: end_of_month(month_start_date) < claim_date
+  - <<: *historical_defaults
+    table: dbo.fact_telemetry_monthly
+    column: avg_engine_temp
+    policy: ALLOW_HISTORICAL_POC
+    as_of_rule: end_of_month(month_start_date) < claim_date
+  - <<: *historical_defaults
+    table: dbo.fact_telemetry_monthly
+    column: max_engine_temp
+    policy: ALLOW_HISTORICAL_POC
+    as_of_rule: end_of_month(month_start_date) < claim_date
+  - <<: *historical_defaults
+    table: dbo.fact_telemetry_monthly
+    column: avg_oil_pressure
+    policy: ALLOW_HISTORICAL_POC
+    as_of_rule: end_of_month(month_start_date) < claim_date
+  - <<: *historical_defaults
+    table: dbo.fact_telemetry_monthly
+    column: low_oil_pressure_events
+    policy: ALLOW_HISTORICAL_POC
+    as_of_rule: end_of_month(month_start_date) < claim_date
+  - <<: *historical_defaults
+    table: dbo.fact_telemetry_monthly
+    column: brake_air_pressure_alerts
+    policy: ALLOW_HISTORICAL_POC
+    as_of_rule: end_of_month(month_start_date) < claim_date
+  - <<: *historical_defaults
+    table: dbo.fact_telemetry_monthly
+    column: battery_voltage_alerts
+    policy: ALLOW_HISTORICAL_POC
+    as_of_rule: end_of_month(month_start_date) < claim_date
+  - <<: *historical_defaults
+    table: dbo.fact_telemetry_monthly
+    column: fault_code_count
+    policy: ALLOW_HISTORICAL_POC
+    as_of_rule: end_of_month(month_start_date) < claim_date
+  - <<: *historical_defaults
+    table: dbo.fact_telemetry_monthly
+    column: harsh_braking_events
+    policy: ALLOW_HISTORICAL_POC
+    as_of_rule: end_of_month(month_start_date) < claim_date
+  - <<: *historical_defaults
+    table: dbo.fact_telemetry_monthly
+    column: avg_payload_weight
+    policy: ALLOW_HISTORICAL_POC
+    as_of_rule: end_of_month(month_start_date) < claim_date
+  - <<: *historical_defaults
+    table: dbo.fact_telemetry_monthly
+    column: fuel_efficiency_mpg
+    policy: ALLOW_HISTORICAL_POC
+    as_of_rule: end_of_month(month_start_date) < claim_date
+  - <<: *historical_defaults
+    table: dbo.fact_telemetry_monthly
+    column: route_severity_score
+    policy: ALLOW_HISTORICAL_POC
+    as_of_rule: end_of_month(month_start_date) < claim_date
+  - <<: *historical_defaults
+    table: dbo.fact_telemetry_monthly
+    column: maintenance_compliance_score
+    policy: ALLOW_HISTORICAL_POC
+    as_of_rule: end_of_month(month_start_date) < claim_date
+  - <<: *control_defaults
+    table: dbo.fact_warranty_claim
+    column: warranty_claim_key
+    policy: CONTROL_ONLY
+  - <<: *control_defaults
+    table: dbo.fact_warranty_claim
+    column: claim_id
+    policy: CONTROL_ONLY
+  - <<: *control_defaults
+    table: dbo.fact_warranty_claim
+    column: service_event_key
+    policy: CONTROL_ONLY
+  - <<: *control_defaults
+    table: dbo.fact_warranty_claim
+    column: truck_key
+    policy: CONTROL_ONLY
+  - <<: *confirmation_defaults
+    table: dbo.fact_warranty_claim
+    column: failure_code_key
+    policy: REQUIRES_CONFIRMATION
+    current_claim_use: REQUIRES_CONFIRMATION
+  - <<: *confirmation_defaults
+    table: dbo.fact_warranty_claim
+    column: causal_component_key
+    policy: REQUIRES_CONFIRMATION
+    current_claim_use: REQUIRES_CONFIRMATION
+  - <<: *restricted_defaults
+    table: dbo.fact_warranty_claim
+    column: service_center_key
+    policy: RESTRICTED_EXPERIMENTAL
+    is_lineage: true
+  - <<: *baseline_defaults
+    table: dbo.fact_warranty_claim
+    column: claim_date
+    policy: ALLOW_BASELINE_POC
+    role: provisional_prediction_reference
+    as_of_rule: claim_date is the date-level prediction reference
+  - <<: *confirmation_defaults
+    table: dbo.fact_warranty_claim
+    column: failure_date
+    policy: REQUIRES_CONFIRMATION
+  - <<: *confirmation_defaults
+    table: dbo.fact_warranty_claim
+    column: repair_start_date
+    policy: REQUIRES_CONFIRMATION
+  - <<: *prohibited_defaults
+    table: dbo.fact_warranty_claim
+    column: repair_end_date
+    policy: PROHIBITED
+  - <<: *baseline_defaults
+    table: dbo.fact_warranty_claim
+    column: odometer_miles_at_failure
+    policy: ALLOW_BASELINE_POC
+  - <<: *baseline_defaults
+    table: dbo.fact_warranty_claim
+    column: engine_hours_at_failure
+    policy: ALLOW_BASELINE_POC
+  - <<: *baseline_defaults
+    table: dbo.fact_warranty_claim
+    column: months_in_service
+    policy: ALLOW_BASELINE_POC
+  - <<: *baseline_defaults
+    table: dbo.fact_warranty_claim
+    column: warranty_coverage_status
+    policy: ALLOW_BASELINE_POC
+  - <<: *prohibited_defaults
+    table: dbo.fact_warranty_claim
+    column: claim_status
+    policy: PROHIBITED
+  - <<: *baseline_defaults
+    table: dbo.fact_warranty_claim
+    column: claim_type
+    policy: ALLOW_BASELINE_POC
+  - <<: *confirmation_defaults
+    table: dbo.fact_warranty_claim
+    column: causal_part_no
+    policy: REQUIRES_CONFIRMATION
+  - <<: *confirmation_defaults
+    table: dbo.fact_warranty_claim
+    column: failure_mode
+    policy: REQUIRES_CONFIRMATION
+  - <<: *prohibited_defaults
+    table: dbo.fact_warranty_claim
+    column: root_cause_category
+    policy: PROHIBITED
+  - <<: *prohibited_defaults
+    table: dbo.fact_warranty_claim
+    column: labor_cost
+    policy: PROHIBITED
+  - <<: *prohibited_defaults
+    table: dbo.fact_warranty_claim
+    column: parts_cost
+    policy: PROHIBITED
+  - <<: *prohibited_defaults
+    table: dbo.fact_warranty_claim
+    column: diagnostic_cost
+    policy: PROHIBITED
+  - <<: *prohibited_defaults
+    table: dbo.fact_warranty_claim
+    column: towing_cost
+    policy: PROHIBITED
+  - <<: *prohibited_defaults
+    table: dbo.fact_warranty_claim
+    column: other_cost
+    policy: PROHIBITED
+  - <<: *prohibited_defaults
+    table: dbo.fact_warranty_claim
+    column: total_claim_cost
+    policy: PROHIBITED
+  - <<: *prohibited_defaults
+    table: dbo.fact_warranty_claim
+    column: approved_amount
+    policy: PROHIBITED
+  - <<: *prohibited_defaults
+    table: dbo.fact_warranty_claim
+    column: rejected_amount
+    policy: PROHIBITED
+  - <<: *prohibited_defaults
+    table: dbo.fact_warranty_claim
+    column: customer_paid_amount
+    policy: PROHIBITED
+  - <<: *prohibited_defaults
+    table: dbo.fact_warranty_claim
+    column: repeat_claim_flag
+    policy: PROHIBITED
+  - <<: *prohibited_defaults
+    table: dbo.fact_warranty_claim
+    column: days_to_failure
+    policy: PROHIBITED
+  - <<: *prohibited_defaults
+    table: dbo.fact_warranty_claim
+    column: days_to_repair
+    policy: PROHIBITED
+  - <<: *target_defaults
+    table: dbo.fact_warranty_claim
+    column: high_cost_claim_flag
+    policy: TARGET_ONLY
+  - <<: *prohibited_defaults
+    table: dbo.fact_warranty_claim
+    column: potential_recall_flag
+    policy: PROHIBITED

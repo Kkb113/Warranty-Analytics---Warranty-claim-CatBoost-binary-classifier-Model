@@ -1,0 +1,87 @@
+contract_version: 1.0.0
+version: 1.0.0
+created_at: "2026-08-10"
+schema_contract_version: 1.0.0
+schema_contract_checksum: 00f86ec9db8ea84d88ea53d3a95d5df4e9a455d9555013d089026a399660cb06
+source_documents:
+  - docs/model_contract.md
+  - docs/phase_3_data_profiling_and_synthetic_audit.md
+  - contracts/warranty_analytics_schema_v1.yaml
+development_status:
+  development_mode: synthetic_poc
+  production_approved: false
+  real_data_reapproval_required: true
+  business_target_definition_confirmed: false
+  generator_source_confirmed: false
+  exact_submission_timestamp_available: false
+target_name: high_cost_claim_flag
+source_table: dbo.fact_warranty_claim
+source_column: high_cost_claim_flag
+target_type: binary
+positive_value: 1
+negative_value: 0
+prediction_grain: one warranty claim
+prediction_point: initial claim submission
+prediction_reference: claim_date
+prediction_reference_status: provisional_date_level
+business_definition_status: unconfirmed_business_definition
+synthetic_development_status: synthetic_development_only
+target_generation_evidence:
+  empirically_deterministic_from_total_claim_cost: true
+  candidate_separator: 9999.525
+  exceptions_observed: 0
+  maximum_negative_total_claim_cost: 9998.14
+  minimum_positive_total_claim_cost: 10000.91
+  business_rule_approved: false
+  generator_source_confirmed: false
+  interpretation: Empirical synthetic target-generation evidence only; never recreate the target from cost.
+eligibility_policy:
+  row_grain: one warranty claim row
+  required_conditions:
+    - warranty_claim_key is non-null
+    - warranty_claim_key is unique
+    - claim_date is non-null
+    - high_cost_claim_flag is in {0, 1}
+    - truck_key resolves to dbo.dim_truck.truck_key
+    - one row represents one warranty claim
+  excluded_conditions:
+    - complete telemetry history is not required
+    - complete maintenance history is not required
+    - repair information is not required
+    - part number is not required
+    - repair completion is not required
+    - post-outcome cost fields are not required
+  categories:
+    - code: ELIGIBLE
+      description: All minimum claim identity, date, target, truck-link, and grain rules pass.
+      priority: 5
+    - code: INELIGIBLE_INVALID_CLAIM_KEY
+      description: Claim key is null or duplicated.
+      priority: 1
+    - code: INELIGIBLE_NULL_TARGET
+      description: Stored target is null.
+      priority: 2
+    - code: INELIGIBLE_INVALID_TARGET
+      description: Stored target is not 0 or 1.
+      priority: 3
+    - code: INELIGIBLE_MISSING_CLAIM_DATE
+      description: Provisional claim reference date is null or invalid.
+      priority: 4
+    - code: INELIGIBLE_MISSING_TRUCK_LINK
+      description: Claim truck_key does not resolve to dim_truck.
+      priority: 6
+  no_silent_drop: true
+prohibited_derivation_fields:
+  - dbo.fact_warranty_claim.total_claim_cost
+  - total_claim_cost
+  - dbo.fact_warranty_claim.labor_cost
+  - dbo.fact_warranty_claim.parts_cost
+  - dbo.fact_warranty_claim.approved_amount
+source_schema_contract_version: 1.0.0
+source_schema_contract_checksum: 00f86ec9db8ea84d88ea53d3a95d5df4e9a455d9555013d089026a399660cb06
+known_limitations:
+  - claim_date is a date-level proxy and is not a precise submission timestamp
+  - the business definition of high cost is not confirmed by a data owner
+  - the synthetic generator source was not found or approved
+  - the current source population is synthetic and requires real-data reapproval
+  - target-generation evidence must not be converted into a production threshold

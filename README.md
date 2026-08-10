@@ -7,7 +7,7 @@ unresolved business and availability questions are not inferred by code.
 
 ## Current status
 
-Current phase: **Phase 3 — Data Profiling and Synthetic Data Audit**.
+Current phase: **Phase 4 — Target Definition, Prediction-Time Availability, and Leakage Enforcement**.
 
 Phase 0 model-contract, Phase 1 scaffolding, Phase 2 read-only data access /
 schema validation, and the Phase 3 live profiling run are complete. The live
@@ -21,8 +21,13 @@ as-of-safe component-installation matching, and monthly telemetry semantics
 that do not treat `engine_hours_month` as cumulative. It is diagnostic only;
 Phase 4 target approval, leakage enforcement, and feature design remain open.
 
-No predictive model has been trained yet, and no feature mart, inference API,
-or monitoring capability exists.
+Phase 4 contract validation is complete offline and is the required gate before
+the live read-only target/policy audit. No predictive model has been trained
+yet, and no feature mart, inference API, or monitoring capability exists.
+The final live Phase 4 audit is READY WITH WARNINGS: 8,500 of 8,500 claims are
+eligible, positive prevalence is 3.047059%, policy coverage is 209/209, and
+there are 0 blocking errors. The aggregate report is under
+reports/phase4_validation/20260810T052019Z/.
 
 ## Local setup
 
@@ -44,6 +49,8 @@ credentials or database exports.
     warranty-model synthetic-audit
     warranty-model data-quality-check
     warranty-model phase3-run --no-charts
+    warranty-model phase4-contract-check
+    warranty-model phase4-validate
 
 Phase 3 commands share the read-only extractor but select distinct task groups:
 `data-profile` runs profiling and target/category/missingness diagnostics,
@@ -58,6 +65,13 @@ installed Microsoft ODBC Driver 18. `schema-validate` writes timestamped JSON
 and Markdown reports under `reports/schema_validation/`; use `--no-report` to
 disable output or `--strict` to treat warnings as blocking. `phase3-run` writes
 timestamped aggregate JSON/Markdown reports under `reports/data_profiling/`.
+
+The Phase 4 contract check is offline and validates the target, feature-policy,
+and leakage contracts across all 209 schema columns. The Phase 4 validation
+command is live and read-only: it runs schema validation, target eligibility,
+target prevalence, target-generation regression evidence, source-policy checks,
+and secret-safe reports under reports/phase4_validation/. Use --no-report,
+--format, --output-dir, or --strict as needed.
 
 The recorded live run used a process-only
 `WARRANTY_DB_TRUST_SERVER_CERTIFICATE=true` override because the local SQL
@@ -107,6 +121,7 @@ by exact object name only; their contents are never read.
 - [Phase 2 implementation record](docs/phase_2_data_access_and_schema_validation.md)
 - [Data profiling methodology](docs/data_profiling.md)
 - [Phase 3 implementation record](docs/phase_3_data_profiling_and_synthetic_audit.md)
+- [Phase 4 target and leakage policy](docs/phase_4_target_and_leakage_policy.md)
 - [Schema contract notes](contracts/README.md)
 - [Phase 1 scaffolding record](docs/phase_1_scaffolding.md)
 - [Contributing guide](CONTRIBUTING.md)

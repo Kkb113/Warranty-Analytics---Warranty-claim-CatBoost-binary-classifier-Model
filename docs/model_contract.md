@@ -25,6 +25,22 @@ feature engineering, implement prediction code, develop an API, deploy a service
 introduce AI-agent or agent-orchestration requirements. Those activities require an
 approved contract and belong to later phases.
 
+## Phase 4 development status
+
+Phase 4 adds machine-readable target, claim-time availability, and leakage contracts
+without changing the Phase 0 business approval status. The stored
+high_cost_claim_flag is technically valid for synthetic proof-of-concept development
+when its values are validated, but the business target definition and synthetic
+generator source remain unconfirmed. Phase 3 cost-separation evidence is diagnostic
+only and must not be converted into a business threshold.
+
+claim_date remains the provisional date-level prediction reference, not a precise
+submission timestamp. Phase 4 therefore applies a conservative strict-before policy:
+date-only historical events must satisfy event_date < claim_date, same-day records
+are excluded, and monthly telemetry must satisfy
+end_of_month(month_start_date) < claim_date. Production use requires business,
+data-owner, and real-data reapproval.
+
 ## 2. Business problem
 
 Warranty teams need earlier visibility into claims that are likely to become expensive.

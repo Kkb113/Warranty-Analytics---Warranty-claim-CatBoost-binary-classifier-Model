@@ -18,3 +18,16 @@ Contract changes require an explicit review, a source-document reconciliation,
 and a version increment. The three excluded ML dataset tables are retained as
 name-only exclusions and must never be inspected, validated, or used as model
 inputs.
+
+Phase 4 adds three separate versioned contracts:
+
+    high_cost_target_v1.yaml
+    claim_time_feature_policy_v1.yaml
+    leakage_policy_v1.yaml
+
+They reference the schema contract version and checksum, classify all 209
+included columns, and are validated by:
+
+    warranty-model phase4-contract-check
+
+Phase 5 must consume these contracts and record their exact policy checksums.

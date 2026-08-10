@@ -14,6 +14,8 @@ production feature mart, trains a model, or serves inference.
 - common/: shared utilities that are not specific to a future modeling stage.
 - database/: Phase 2 typed SQL Server connection, catalog metadata, contract,
   diff, and reporting modules.
+- policy/: Phase 4 versioned target, claim-time feature-availability, leakage,
+  eligibility, allowlist, lineage, and report enforcement.
 - profiling/: Phase 3 explicit-column extraction, table/column/target profiles,
   data-quality checks, temporal/telemetry audits, synthetic-data audits,
   as-of installation matching, findings, and report generation.
@@ -31,7 +33,7 @@ production feature mart, trains a model, or serves inference.
 - logging_config.py: standard-library console and optional file logging.
 - reproducibility.py: deterministic Python random seeding.
 - cli.py: infrastructure and schema commands plus explicit live Phase 3
-  profiling/audit commands.
+  profiling/audit and Phase 4 policy-validation commands.
 
 ## Corrected Phase 3 diagnostic flow
 
@@ -114,10 +116,12 @@ settings.
 - Phase 1: project scaffolding and infrastructure quality gates.
 - Phase 2: SQL Server connectivity, schema validation, and source-table checks.
 - Phase 3: data profiling, synthetic-data audit, and logical data-quality work.
-- Phase 4: executable target construction and leakage enforcement against actual
-  columns.
-- Phase 5 and later: feature engineering, model training, evaluation,
-  calibration, inference, and monitoring.
+- Phase 4: stored-target validation, claim eligibility, prediction-time
+  availability policy, historical as-of rules, leakage enforcement, and
+  versioned feature/lineage allowlists. It does not construct the feature mart.
+- Phase 5: claim-level feature-mart construction from the Phase 4 contracts.
+- Phase 6 and later: split design, feature engineering, model training,
+  evaluation, calibration, inference, and monitoring.
 
 These boundaries preserve the Phase 0 contract and prevent infrastructure work
 from implying that later capabilities already exist.
