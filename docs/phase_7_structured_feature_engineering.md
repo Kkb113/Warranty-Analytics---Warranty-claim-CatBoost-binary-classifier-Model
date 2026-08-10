@@ -65,7 +65,5 @@ It consumes `artifacts/feature_mart/20260810T102230Z/` and
 TRAIN features, synthetic-POC status, date-level prediction reference, and
 real-data reapproval requirements.
 
-Phase 7 is hardened and safe to start Phase 8 after the contract, Phase 5 mart,
-corrected Phase 6 split, feature artifact, lineage, temporal, numeric, and
-determinism validations all pass. Phase 8 owns text feature development; Phase
-9 owns baseline model training.
+Phase 7 is hardened and was the locked structured input for Phase 8. Phase 8
+owns historical text feature development; Phase 9 owns baseline model training.

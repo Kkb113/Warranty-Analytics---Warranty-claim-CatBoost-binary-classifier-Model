@@ -74,3 +74,18 @@ is excluded from both the safe-history numerator and the expected-month
 denominator. Feature lineage separately records `value_sources` and
 `control_sources`; keys and temporal filters used only for alignment, counting,
 ordering, or as-of safety are never treated as raw predictive values.
+
+Phase 8 adds `text_feature_contract_v1.yaml` and technical settings in
+`configs/text_features.yaml`. It consumes the exact Phase 5 mart, corrected
+Phase 6 split, and hardened Phase 7 artifact. The only approved text value
+source is `prior_failure__failure_description` from `prior_claim_history` under
+the historical POC policy. Current-claim narratives, identifiers, target
+fields, costs, vectorizers, embeddings, and fitted text models are prohibited.
+The contract check is offline:
+
+    warranty-model phase8-contract-check
+
+Phase 8 uses strict prior-date as-of rules, deterministic document ordering,
+NFKC/whitespace/casefold normalization, and 6m/12m/24m/all windows. Its
+companion artifacts and aggregate-only reports are generated under ignored
+`artifacts/text_features/` and `reports/phase8_text_features/` directories.

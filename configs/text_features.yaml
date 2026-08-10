@@ -1,0 +1,18 @@
+text_features:
+  windows_months:
+    - 6
+    - 12
+    - 24
+  include_all_history: true
+  normalization:
+    unicode_form: NFKC
+    lowercase: true
+    collapse_whitespace: true
+    trim: true
+    preserve_punctuation: true
+    preserve_numbers: true
+  document_separator: " [SEP] "
+  output_directory: artifacts/text_features
+  report_directory: reports/phase8_text_features
+  compression: snappy
+  validate_after_build: true

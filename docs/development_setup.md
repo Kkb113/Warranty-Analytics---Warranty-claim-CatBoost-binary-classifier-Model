@@ -73,6 +73,10 @@ output into tickets or logs if local environment metadata is sensitive.
     python -m warranty_analytics_model phase7-plan-check --mart-dir artifacts/feature_mart/<run_id> --split-dir artifacts/splits/<run_id>
     python -m warranty_analytics_model phase7-build --mart-dir artifacts/feature_mart/<run_id> --split-dir artifacts/splits/<run_id>
     python -m warranty_analytics_model phase7-validate --feature-dir artifacts/structured_features/<run_id>
+    python -m warranty_analytics_model phase8-contract-check
+    python -m warranty_analytics_model phase8-plan-check --mart-dir artifacts/feature_mart/<run_id> --split-dir artifacts/splits/<run_id> --structured-dir artifacts/structured_features/<run_id>
+    python -m warranty_analytics_model phase8-build --mart-dir artifacts/feature_mart/<run_id> --split-dir artifacts/splits/<run_id> --structured-dir artifacts/structured_features/<run_id>
+    python -m warranty_analytics_model phase8-validate --text-dir artifacts/text_features/<run_id>
     python -m ruff check .
     python -m ruff format --check .
     python -m mypy src
@@ -140,3 +144,10 @@ split have completed. Run `phase5-validate` against the selected mart,
 matrices, manifests, diagnostics, and reports are generated locally under
 ignored `artifacts/structured_features/` and
 `reports/phase7_structured_features/` directories.
+
+Phase 8 is fully offline after the exact Phase 5 mart, corrected Phase 6 split,
+and hardened Phase 7 artifact have completed. Run `phase8-contract-check`,
+`phase8-plan-check`, `phase8-build`, and `phase8-validate` with those exact
+inputs. Historical documents, lexical features, manifests, diagnostics, and
+aggregate-only reports are generated locally under ignored
+`artifacts/text_features/` and `reports/phase8_text_features/` directories.

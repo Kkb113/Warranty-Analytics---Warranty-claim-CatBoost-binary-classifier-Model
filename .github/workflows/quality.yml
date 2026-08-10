@@ -50,3 +50,6 @@ jobs:
 
       - name: Validate Phase 7 structured feature contract offline
         run: warranty-model phase7-contract-check
+
+      - name: Validate Phase 8 text feature contract offline
+        run: warranty-model phase8-contract-check

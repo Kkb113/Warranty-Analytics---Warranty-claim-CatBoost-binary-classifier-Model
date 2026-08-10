@@ -1,0 +1,139 @@
+contract_version: "1.0.0"
+created_at: "2026-08-10T00:00:00Z"
+
+schema_contract_checksum: "00f86ec9db8ea84d88ea53d3a95d5df4e9a455d9555013d089026a399660cb06"
+target_contract_checksum: "17f39d6abf71861bd9c9d7c514c1847cef08049a312988b1c4dec3b4b204c25b"
+feature_policy_checksum: "1b42aef48ddaedddaae9288cec2494fcce528788c6038f14668e767403e7c3c9"
+leakage_policy_checksum: "fda75d50c0e6fd06c59e04a0d7cfc3dad5080b1257870021c76aa6040140ec3e"
+phase5_mart_contract_checksum: "6e2650270c788dadb8ab46ddaf9e38f2940474d85cf959a96f168ab80c45855e"
+phase6_split_contract_checksum: "698ce73b4545d33b9ca8559dc899f6614d072139d476bf9c0a5f42bdde8d03f4"
+phase7_structured_feature_contract_checksum: "05d5d0d3c6adf38e0b0899e15625945633704e2568d861f76a23cb1a0710d02a"
+
+feature_grain: "one row = one eligible warranty claim"
+prediction_reference:
+  column: claim__claim_date
+  status: provisional_date_level
+  rule: "prior_claim_date < claim_date; same-day and future history are excluded"
+
+approved_text_sources:
+  - source: prior_failure__failure_description
+    source_artifact: prior_claim_history
+    source_semantics: description attached to a safe prior claim
+    policy: ALLOW_HISTORICAL_POC
+    current_claim_use: prohibited
+    production_status: requires historical-versioning validation
+
+prohibited_text_sources:
+  - complaint_description
+  - diagnostic_summary
+  - technician_notes
+  - repair_notes
+  - current_failure_description
+  - total_claim_cost
+  - warranty_claim_key
+  - supplier_key
+  - prior_failure__failure_code
+  - prior_failure__failure_system
+  - prior_failure__failure_category
+  - prior_failure__severity_level
+
+text_normalization_policy:
+  unicode_form: NFKC
+  lowercase: true
+  case_policy: Unicode casefold
+  collapse_whitespace: true
+  replace_line_breaks_and_tabs: true
+  trim: true
+  preserve_punctuation: true
+  preserve_numbers: true
+  stem: false
+  lemmatize: false
+  spell_correct: false
+  stop_word_removal: false
+  null_or_blank: exclude_from_document
+
+historical_windows:
+  fixed_months: [6m, 12m, 24m]
+  include_all_history: true
+  lower_boundary: inclusive
+  upper_boundary: strict_before_claim_date
+  three_month_window: not_created
+
+document_construction_policy:
+  source_value_only: prior_failure__failure_description
+  separator: " [SEP] "
+  ordering: prior_claim_date_ascending_then_prior_warranty_claim_key_ascending
+  preserve_repeated_descriptions: true
+  include_claim_ids: false
+  include_dates: false
+  include_keys: false
+  include_target: false
+  include_costs: false
+  no_silent_truncation: true
+  no_history_representation: null
+
+lexical_feature_policy:
+  token_rule: "Unicode word-like sequences matching (?u)[^\\W_]+"
+  feature_set:
+    - description_count
+    - unique_description_count
+    - character_count
+    - token_count
+    - unique_token_count
+    - avg_description_character_count
+    - avg_description_token_count
+  no_duplicate_nonempty_description_count: true
+  text_presence_feature: text__has_prior_failure_description
+  target_independent: true
+
+fitted_transform_policy:
+  tfidf: false
+  count_vectorizer: false
+  embeddings: false
+  llm: false
+  vocabulary_learning: false
+  model_training: false
+  model_metrics: false
+
+target_independence_policy:
+  target_column: target__high_cost_claim_flag
+  target_column_excluded: true
+  target_statistics: prohibited
+  target_rate_features: prohibited
+  changing_target_labels_must_not_change_output: true
+  build_without_target_must_succeed: true
+
+test_lock_policy:
+  consume_existing_split: true
+  create_new_split: false
+  verify_train_validation_test_membership: true
+  verify_ordered_test_hash: true
+  verify_unordered_test_hash: true
+  verify_test_assignment_hash: true
+  first_target_evaluation_phase: 15
+
+dimension_versioning_warning:
+  code: UNVERSIONED_FAILURE_DESCRIPTION_DIMENSION
+  status: synthetic_poc_warning
+  production_requirement: prove historical text was not retrospectively edited
+
+artifact_layout:
+  root: artifacts/text_features/<run_id>
+  text_features: text_features.parquet
+  text_feature_manifest: text_feature_manifest.json
+  text_feature_lineage: text_feature_lineage.json
+  text_quality: text_quality.json
+  manifest: manifest.json
+  validation: validation.json
+  reports: reports/phase8_text_features/<run_id>
+  canonical_row_order: warranty_claim_key_ascending
+  canonical_column_order: controls_then_raw_text_then_lexical
+  generated_artifacts_git_ignored: true
+
+development_status:
+  development_mode: synthetic_poc
+  production_approved: false
+  real_data_reapproval_required: true
+  business_target_definition_confirmed: false
+  precise_submission_timestamp_available: false
+  historical_failure_description_versioning_confirmed: false

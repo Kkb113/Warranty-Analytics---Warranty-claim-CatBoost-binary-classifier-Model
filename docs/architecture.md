@@ -30,6 +30,9 @@ serves inference.
   evaluation cohorts, manifests, and offline validation.
 - structured_features/: Phase 7 deterministic structured feature construction,
   source-policy lineage, manifests, quality diagnostics, and offline validation.
+- text_features/: Phase 8 historical text documents and deterministic lexical
+  aggregates, source-policy lineage, manifests, quality diagnostics, and
+  offline validation.
 - models/: Phase 5 and later boundary for training and model artifacts.
 - evaluation/: Phase 5 and later boundary for metrics and calibration.
 - inference/: Phase 5 and later boundary for inference; no inference exists in
@@ -40,7 +43,8 @@ serves inference.
 - reproducibility.py: deterministic Python random seeding.
 - cli.py: infrastructure and schema commands plus explicit live Phase 3
   profiling/audit, Phase 4 policy validation, Phase 5 mart commands, and
-  offline Phase 6 split commands.
+  offline Phase 6 split, Phase 7 structured-feature, and Phase 8 text-feature
+  commands.
 
 ## Corrected Phase 3 diagnostic flow
 
@@ -133,7 +137,9 @@ settings.
   target transformation, resampling, model training, or model metrics.
 - Phase 7: deterministic structured feature engineering from the locked Phase 5
   mart and Phase 6 split; no model training or metrics.
-- Phase 8: text feature development; Phase 7 defers failure-description text.
+- Phase 8: historical text feature development from prior failure descriptions;
+  current-claim narratives, identifiers, costs, targets, and text models remain
+  prohibited. The output is a companion artifact to Phase 7.
 - Phase 9: baseline model training.
 - Later phases: evaluation, calibration, inference, and monitoring.
 

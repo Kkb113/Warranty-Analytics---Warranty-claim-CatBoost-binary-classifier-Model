@@ -220,6 +220,52 @@ def build_parser() -> argparse.ArgumentParser:
     phase7_validate.add_argument(
         "--feature-dir", type=Path, required=True, help="Structured-feature run directory."
     )
+    subparsers.add_parser(
+        "phase8-contract-check",
+        help="Validate the Phase 8 historical text contract offline.",
+    )
+    phase8_plan = subparsers.add_parser(
+        "phase8-plan-check",
+        help="Validate Phase 5/6/7 inputs and the Phase 8 text plan offline.",
+    )
+    phase8_plan.add_argument(
+        "--mart-dir", type=Path, required=True, help="Phase 5 mart run directory."
+    )
+    phase8_plan.add_argument(
+        "--split-dir", type=Path, required=True, help="Corrected Phase 6 split run directory."
+    )
+    phase8_plan.add_argument(
+        "--structured-dir", type=Path, required=True, help="Hardened Phase 7 run directory."
+    )
+    phase8_build = subparsers.add_parser(
+        "phase8-build",
+        help="Build deterministic historical text candidates from Phase 5/6/7 artifacts.",
+    )
+    phase8_build.add_argument(
+        "--mart-dir", type=Path, required=True, help="Phase 5 mart run directory."
+    )
+    phase8_build.add_argument(
+        "--split-dir", type=Path, required=True, help="Corrected Phase 6 split run directory."
+    )
+    phase8_build.add_argument(
+        "--structured-dir", type=Path, required=True, help="Hardened Phase 7 run directory."
+    )
+    phase8_build.add_argument("--output-dir", type=Path, help="Phase 8 artifact root override.")
+    phase8_build.add_argument("--report-dir", type=Path, help="Phase 8 report root override.")
+    phase8_build.add_argument("--run-id", help="Explicit immutable Phase 8 run identifier.")
+    phase8_build.add_argument(
+        "--overwrite", action="store_true", help="Replace an existing local Phase 8 run."
+    )
+    phase8_build.add_argument(
+        "--no-report", action="store_true", help="Do not write aggregate reports."
+    )
+    phase8_validate = subparsers.add_parser(
+        "phase8-validate",
+        help="Validate a completed Phase 8 historical text run offline.",
+    )
+    phase8_validate.add_argument(
+        "--text-dir", type=Path, required=True, help="Phase 8 text run directory."
+    )
     return parser
 
 
@@ -931,6 +977,101 @@ def _run_phase7_validate(arguments: argparse.Namespace) -> int:
     return 0 if not validation.get("errors") else 1
 
 
+def _run_phase8_contract_check() -> int:
+    """Validate the Phase 8 contract without reading artifacts or a database."""
+
+    try:
+        from .text_features.runner import phase8_contract_check
+
+        result = phase8_contract_check()
+    except Exception as exc:
+        print(f"Phase 8 contract check BLOCKED: {exc}", file=sys.stderr)
+        return 1
+    print(f"Phase 8 contract check: {result.get('status', 'BLOCKED')}")
+    print(f"Contract version: {result.get('contract_version', '-')}")
+    print(f"Contract SHA-256: {result.get('contract_checksum', '-')}")
+    for error in result.get("errors", []):
+        print(f"ERROR: {error}")
+    for warning in result.get("warnings", []):
+        print(f"WARNING: {warning}")
+    return 0 if result.get("valid") else 1
+
+
+def _run_phase8_plan_check(arguments: argparse.Namespace) -> int:
+    """Validate the exact Phase 5/6/7 chain before building text."""
+
+    try:
+        from .text_features.input import phase8_plan_check
+
+        result = phase8_plan_check(
+            arguments.mart_dir, arguments.split_dir, arguments.structured_dir
+        )
+    except Exception as exc:
+        print(f"Phase 8 plan check BLOCKED: {exc}", file=sys.stderr)
+        return 1
+    print(f"Phase 8 plan check: {result.get('status', 'BLOCKED')}")
+    for error in result.get("errors", []):
+        print(f"ERROR: {error}")
+    for warning in result.get("warnings", []):
+        print(f"WARNING: {warning}")
+    return 0 if result.get("valid") else 1
+
+
+def _run_phase8_build(arguments: argparse.Namespace) -> int:
+    """Build the offline Phase 8 text companion artifact."""
+
+    try:
+        from .text_features.runner import build_phase8
+
+        result = build_phase8(
+            arguments.mart_dir,
+            arguments.split_dir,
+            arguments.structured_dir,
+            output_dir=arguments.output_dir,
+            report_dir=arguments.report_dir,
+            run_id=arguments.run_id,
+            overwrite=arguments.overwrite,
+            no_report=arguments.no_report,
+        )
+    except Exception as exc:
+        print(f"Phase 8 build BLOCKED: {exc}", file=sys.stderr)
+        return 1
+    print(f"Phase 8 status: {result.get('status', 'BLOCKED')}")
+    print(f"Text run directory: {result.get('run_directory', '-')}")
+    if result.get("report_directory"):
+        print(f"Report directory: {result['report_directory']}")
+    validation = result.get("validation", {})
+    print(
+        f"Rows: {validation.get('row_count', 0)}; text features: {validation.get('text_feature_count', 0)}; "
+        f"lexical features: {validation.get('lexical_feature_count', 0)}"
+    )
+    for warning in result.get("warnings", []):
+        print(f"WARNING: {warning}")
+    return 0 if result.get("status") in {"PASS", "PASS WITH WARNINGS"} else 1
+
+
+def _run_phase8_validate(arguments: argparse.Namespace) -> int:
+    """Validate a completed Phase 8 text run without database access."""
+
+    try:
+        from .text_features.runner import validate_existing_text_run
+
+        validation = validate_existing_text_run(arguments.text_dir)
+    except Exception as exc:
+        print(f"Phase 8 validation BLOCKED: {exc}", file=sys.stderr)
+        return 1
+    print(f"Phase 8 validation: {validation.get('status', 'BLOCKED')}")
+    print(f"Rows: {validation.get('row_count', 0)}; columns: {validation.get('column_count', 0)}")
+    print(
+        f"Errors: {len(validation.get('errors', []))}; warnings: {len(validation.get('warnings', []))}"
+    )
+    for error in validation.get("errors", []):
+        print(f"ERROR: {error}")
+    for warning in validation.get("warnings", []):
+        print(f"WARNING: {warning}")
+    return 0 if not validation.get("errors") else 1
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run one supported CLI command."""
 
@@ -978,6 +1119,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_phase7_build(arguments)
     if arguments.command == "phase7-validate":
         return _run_phase7_validate(arguments)
+    if arguments.command == "phase8-contract-check":
+        return _run_phase8_contract_check()
+    if arguments.command == "phase8-plan-check":
+        return _run_phase8_plan_check(arguments)
+    if arguments.command == "phase8-build":
+        return _run_phase8_build(arguments)
+    if arguments.command == "phase8-validate":
+        return _run_phase8_validate(arguments)
     if arguments.command in {"data-profile", "synthetic-audit", "data-quality-check", "phase3-run"}:
         return _run_phase3(arguments)
     parser.error(f"Unsupported command: {arguments.command}")
