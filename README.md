@@ -7,7 +7,7 @@ unresolved business and availability questions are not inferred by code.
 
 ## Current status
 
-Current phase: **Phase 5 — Claim-Level Feature Mart Construction**.
+Current phase: **Phase 6 — Train / Validation / Test Split Design**.
 
 Phase 0 model-contract, Phase 1 scaffolding, Phase 2 read-only data access /
 schema validation, and the Phase 3 live profiling run are complete. The live
@@ -29,8 +29,10 @@ direct fields, and 43/43 historical fields. The run is under
 `artifacts/feature_mart/20260810T102230Z/`; aggregate reports are under
 `reports/phase5_feature_mart/20260810T102230Z/`.
 
-Feature mart built. Train/validation/test splits have not yet been created.
-No predictive model has been trained.
+Feature mart built. The Phase 6 split contract and deterministic chronological
+split implementation are now in place. The final split is built only from the
+verified Phase 5 mart; no SQL Server query is used to create assignments. No
+predictive model has been trained.
 The final live Phase 4 audit is READY WITH WARNINGS: 8,500 of 8,500 claims are
 eligible, positive prevalence is 3.047059%, policy coverage is 209/209, and
 there are 0 blocking errors. The aggregate report is under
@@ -61,6 +63,10 @@ credentials or database exports.
     warranty-model phase5-plan-check
     warranty-model phase5-build
     warranty-model phase5-validate --mart-dir artifacts/feature_mart/<run_id>
+    warranty-model phase6-contract-check
+    warranty-model phase6-plan-check --mart-dir artifacts/feature_mart/<run_id>
+    warranty-model phase6-build --mart-dir artifacts/feature_mart/<run_id>
+    warranty-model phase6-validate --split-dir artifacts/splits/<run_id>
 
 Phase 3 commands share the read-only extractor but select distinct task groups:
 `data-profile` runs profiling and target/category/missingness diagnostics,
@@ -97,6 +103,15 @@ under `reports/phase5_feature_mart/<run_id>/`. `phase5-validate` rechecks an
 existing bundle without database access. Generated artifacts and reports are
 ignored and must not be committed.
 
+Phase 6 consumes an already validated Phase 5 mart and freezes one
+date-preserving chronological TRAIN/VALIDATION/TEST partition. The boundary
+algorithm uses only claim dates, date-level row counts, and the configured
+70/15/15 fractions; target values are used only for post-assignment
+diagnostics. Phase 6 also writes hash-only test-lock metadata, group-exposure
+diagnostics, and claim-level evaluation cohorts. Generated split artifacts and
+reports remain ignored. The test target is reserved for first final evaluation
+in Phase 15.
+
 ## Repository structure
 
 - `contracts/`: version-controlled schema contract and provenance notes.
@@ -116,6 +131,9 @@ ignored and must not be committed.
     python -m mypy src
     python -m pytest
     warranty-model schema-contract-check
+    warranty-model phase4-contract-check
+    warranty-model phase5-plan-check
+    warranty-model phase6-contract-check
 
 CI runs these checks without credentials or SQL Server access. Live tests are
 opt-in only when `WARRANTY_RUN_DB_TESTS=true` and valid local settings exist.
@@ -141,6 +159,7 @@ by exact object name only; their contents are never read.
 - [Phase 3 implementation record](docs/phase_3_data_profiling_and_synthetic_audit.md)
 - [Phase 4 target and leakage policy](docs/phase_4_target_and_leakage_policy.md)
 - [Phase 5 claim feature mart](docs/phase_5_claim_feature_mart.md)
+- [Phase 6 train/validation/test split design](docs/phase_6_train_validation_test_split.md)
 - [Schema contract notes](contracts/README.md)
 - [Phase 1 scaffolding record](docs/phase_1_scaffolding.md)
 - [Contributing guide](CONTRIBUTING.md)

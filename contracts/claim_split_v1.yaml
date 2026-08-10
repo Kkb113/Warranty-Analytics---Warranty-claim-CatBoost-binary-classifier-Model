@@ -1,0 +1,108 @@
+contract_version: "1.0.0"
+created_at: "2026-08-10T00:00:00Z"
+
+input_mart_contract_version: "1.0.0"
+input_mart_contract_checksum: "6e2650270c788dadb8ab46ddaf9e38f2940474d85cf959a96f168ab80c45855e"
+input_schema_contract_checksum: "00f86ec9db8ea84d88ea53d3a95d5df4e9a455d9555013d089026a399660cb06"
+input_target_contract_checksum: "17f39d6abf71861bd9c9d7c514c1847cef08049a312988b1c4dec3b4b204c25b"
+input_feature_policy_checksum: "1b42aef48ddaedddaae9288cec2494fcce528788c6038f14668e767403e7c3c9"
+input_leakage_policy_checksum: "fda75d50c0e6fd06c59e04a0d7cfc3dad5080b1257870021c76aa6040140ec3e"
+
+split_strategy: chronological
+prediction_reference: claim__claim_date
+requested_fractions:
+  TRAIN: 0.70
+  VALIDATION: 0.15
+  TEST: 0.15
+
+boundary_algorithm:
+  name: date_count_cumulative_closest
+  inputs:
+    - claim__claim_date
+    - unique_claim_count_per_date
+    - requested_fractions
+  train_boundary_target: total_claims * train_fraction
+  validation_boundary_target: total_claims * (train_fraction + validation_fraction)
+  target_independent: true
+  target_column_used: false
+tie_breaking_rule: earlier_date
+
+same_day_policy:
+  preserve_same_date: true
+  rule: every unique claim_date belongs to exactly one split
+  precise_submission_timestamp_available: false
+
+class_sufficiency_policy:
+  purpose: evaluation_sufficiency_diagnostics_only
+  no_stratification: true
+  no_resampling: true
+  block_if:
+    - any_split_contains_only_one_target_class
+    - validation_positive_count_lt_10
+    - test_positive_count_lt_10
+    - any_split_fraction_lt_0.10
+  warning_if:
+    - validation_positive_count_10_to_19
+    - test_positive_count_10_to_19
+    - train_positive_count_lt_100
+
+test_access_policy:
+  train:
+    phase_7: target_independent_feature_engineering
+    phase_9_plus: model_fitting_allowed
+  validation:
+    phase_7: target_independent_feature_engineering
+    phase_9_to_14: model_selection_tuning_and_development_evaluation_allowed
+  test:
+    phase_7: target_independent_feature_construction_only
+    phase_9_to_14: no_target_based_evaluation_for_development_decisions
+    phase_15: first_final_target_based_model_evaluation
+  phase_9_to_14_target_evaluation_for_development: false
+  allowed_first_target_evaluation_phase: 15
+
+group_exposure_policy:
+  enabled: true
+  primary_split_remains_chronological: true
+  do_not_group_force_primary_partition: true
+  target_independent: true
+  historical_groups_may_be_one_to_many: true
+  cohorts_are_metadata_not_new_splits: true
+
+scenario_fingerprint_policy:
+  source: phase5_safe_scenario_fingerprint
+  recalculate: false
+  target_independent: true
+  overlap_severity: WARNING
+  fingerprint_clean_cohort_defined: true
+  validation_reference: TRAIN
+  test_reference: TRAIN_PLUS_VALIDATION
+  do_not_remove_overlapping_claims_from_primary_test: true
+
+artifact_layout:
+  root: artifacts/splits/<run_id>
+  split_assignments: split_assignments.parquet
+  group_exposure: group_exposure.parquet
+  evaluation_cohorts: evaluation_cohorts.parquet
+  split_manifest: split_manifest.json
+  split_validation: split_validation.json
+  test_lock: test_lock.json
+  generated_artifacts_git_ignored: true
+  raw_claim_keys_in_json: false
+
+validation_policy:
+  claim_coverage_blocking: true
+  assignment_uniqueness_blocking: true
+  date_order_blocking: true
+  same_date_integrity_blocking: true
+  target_count_reconciliation_blocking: true
+  artifact_checksum_blocking: true
+  test_lock_reproducibility_blocking: true
+  split_fraction_warning_tolerance: 0.03
+  minimum_split_fraction: 0.10
+
+development_status:
+  development_mode: synthetic_poc
+  production_approved: false
+  real_data_reapproval_required: true
+  business_target_definition_confirmed: false
+  precise_submission_timestamp_available: false

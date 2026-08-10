@@ -44,3 +44,6 @@ jobs:
 
       - name: Validate Phase 5 mart plan offline
         run: warranty-model phase5-plan-check
+
+      - name: Validate Phase 6 split contract offline
+        run: warranty-model phase6-contract-check

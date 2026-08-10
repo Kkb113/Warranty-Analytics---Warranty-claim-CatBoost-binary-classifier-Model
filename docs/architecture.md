@@ -26,6 +26,8 @@ serves inference.
   ingestion or feature pipeline.
 - validation/: Phase 2 schema comparison and later logical data-quality boundary.
 - feature_mart/: Phase 5 claim snapshot, as-of history bridges, manifests, and validation.
+- splits/: Phase 6 chronological assignments, test-locking, group exposure,
+  evaluation cohorts, manifests, and offline validation.
 - features/: later structured feature-engineering boundary.
 - models/: Phase 5 and later boundary for training and model artifacts.
 - evaluation/: Phase 5 and later boundary for metrics and calibration.
@@ -36,7 +38,8 @@ serves inference.
 - logging_config.py: standard-library console and optional file logging.
 - reproducibility.py: deterministic Python random seeding.
 - cli.py: infrastructure and schema commands plus explicit live Phase 3
-  profiling/audit, Phase 4 policy validation, and Phase 5 mart commands.
+  profiling/audit, Phase 4 policy validation, Phase 5 mart commands, and
+  offline Phase 6 split commands.
 
 ## Corrected Phase 3 diagnostic flow
 
@@ -124,8 +127,11 @@ settings.
   versioned feature/lineage allowlists.
 - Phase 5: claim-level snapshot and safe history-mart construction from the
   Phase 4 contracts; no flattening, imputation, splits, or model training.
-- Phase 6 and later: split design, feature engineering, model training,
-  evaluation, calibration, inference, and monitoring.
+- Phase 6: deterministic chronological split design, frozen test membership,
+  group-exposure diagnostics, and evaluation cohorts. No feature engineering,
+  target transformation, resampling, model training, or model metrics.
+- Phase 7 and later: feature engineering, model training, evaluation,
+  calibration, inference, and monitoring.
 
 These boundaries preserve the Phase 0 contract and prevent infrastructure work
 from implying that later capabilities already exist.

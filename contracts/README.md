@@ -43,3 +43,17 @@ bridges, and forbids excluded ML tables, customer-derived location paths,
 current-claim repair values, and current causal-component selection. Its exact
 SHA-256 is recorded in every generated Phase 5 manifest. The technical settings
 for local Parquet output are in `configs/feature_mart.yaml`.
+
+Phase 6 adds the versioned evaluation-design contract
+`claim_split_v1.yaml` and technical settings in `configs/splits.yaml`. The
+split contract references the exact Phase 4 policy checksums and Phase 5 mart
+contract checksum. Its primary split is chronological and date-preserving;
+group exposure and fingerprint-clean cohorts are diagnostics, not alternate
+partitions. Validate it offline with:
+
+    warranty-model phase6-contract-check
+
+Phase 6 consumes only an already completed Phase 5 mart. Generated split
+assignments, group-exposure artifacts, evaluation cohorts, manifests, test
+locks, and reports are local ignored outputs and must not be committed to this
+public repository.

@@ -146,6 +146,38 @@ def build_parser() -> argparse.ArgumentParser:
         help="Validate an existing Phase 5 mart bundle without database access.",
     )
     phase5_validate.add_argument("--mart-dir", type=Path, required=True, help="Mart run directory.")
+    subparsers.add_parser(
+        "phase6-contract-check",
+        help="Validate the Phase 6 split contract and configuration offline.",
+    )
+    phase6_plan = subparsers.add_parser(
+        "phase6-plan-check",
+        help="Validate Phase 5 input compatibility and the Phase 6 split plan offline.",
+    )
+    phase6_plan.add_argument(
+        "--mart-dir", type=Path, required=True, help="Phase 5 mart run directory."
+    )
+    phase6_build = subparsers.add_parser(
+        "phase6-build",
+        help="Build a deterministic chronological Phase 6 split from a Phase 5 mart.",
+    )
+    phase6_build.add_argument(
+        "--mart-dir", type=Path, required=True, help="Phase 5 mart run directory."
+    )
+    phase6_build.add_argument("--output-dir", type=Path, help="Split artifact root override.")
+    phase6_build.add_argument("--report-dir", type=Path, help="Phase 6 report root override.")
+    phase6_build.add_argument("--run-id", help="Explicit immutable Phase 6 run identifier.")
+    phase6_build.add_argument(
+        "--overwrite", action="store_true", help="Replace only an incomplete output directory."
+    )
+    phase6_build.add_argument("--no-report", action="store_true", help="Do not write reports.")
+    phase6_validate = subparsers.add_parser(
+        "phase6-validate",
+        help="Validate an existing Phase 6 split run without database access.",
+    )
+    phase6_validate.add_argument(
+        "--split-dir", type=Path, required=True, help="Split run directory."
+    )
     return parser
 
 
@@ -176,6 +208,8 @@ def run_doctor(project_root: Path | None = None) -> tuple[bool, list[str]]:
             paths.config_dir / "development.yaml",
             paths.config_dir / "test.yaml",
             paths.root / "configs" / "feature_mart.yaml",
+            paths.root / "configs" / "splits.yaml",
+            paths.root / "contracts" / "claim_split_v1.yaml",
         )
         missing_files = [str(path) for path in required_files if not path.is_file()]
         if missing_files:
@@ -662,6 +696,108 @@ def _run_phase5_validate(arguments: argparse.Namespace) -> int:
     return 0 if not validation.get("errors") else 1
 
 
+def _render_phase6_validation(validation: dict[str, object]) -> None:
+    """Print aggregate Phase 6 validation output without record-level values."""
+
+    print(f"Errors: {len(cast(list[object], validation.get('errors', [])))}")
+    print(f"Warnings: {len(cast(list[object], validation.get('warnings', [])))}")
+    counts = validation.get("split_counts", {})
+    if isinstance(counts, dict):
+        for split in ("TRAIN", "VALIDATION", "TEST"):
+            item = counts.get(split, {})
+            if isinstance(item, dict):
+                print(
+                    f"{split}: rows={item.get('row_count', 0)} "
+                    f"positive/negative={item.get('positive_count', 0)}/"
+                    f"{item.get('negative_count', 0)}"
+                )
+    for warning in cast(list[object], validation.get("warnings", [])):
+        print(f"WARNING: {warning}")
+
+
+def _run_phase6_contract_check() -> int:
+    """Validate the Phase 6 contract without reading a mart or database."""
+
+    try:
+        from .splits.split_contract import validate_current_split_contract
+
+        result = validate_current_split_contract()
+    except (FeatureMartError, ValueError, OSError) as exc:
+        print(f"Phase 6 contract check BLOCKED: {exc}", file=sys.stderr)
+        return 1
+    if not result.valid:
+        print("Phase 6 contract check BLOCKED")
+        for error in result.errors:
+            print(f"ERROR: {error}")
+        return 1
+    print(
+        "PASS: Phase 6 split contract "
+        f"fractions={result.requested_fractions} "
+        f"split_contract_checksum={result.split_contract_checksum}"
+    )
+    return 0
+
+
+def _run_phase6_plan_check(arguments: argparse.Namespace) -> int:
+    """Validate the Phase 5 input and Phase 6 plan without creating assignments."""
+
+    try:
+        from .splits.runner import phase6_plan_check
+
+        result = phase6_plan_check(arguments.mart_dir)
+    except (FeatureMartError, FileNotFoundError, ValueError, OSError) as exc:
+        print(f"Phase 6 plan check BLOCKED: {exc}", file=sys.stderr)
+        return 1
+    print(f"Phase 6 plan check: {result.get('status', 'BLOCKED')}")
+    print(f"Phase 5 mart: {result.get('mart_run', '-')}")
+    print(f"Errors: {len(result.get('errors', []))}; warnings: {len(result.get('warnings', []))}")
+    for error in result.get("errors", []):
+        print(f"ERROR: {error}")
+    for warning in result.get("warnings", []):
+        print(f"WARNING: {warning}")
+    return 0 if result.get("valid") else 1
+
+
+def _run_phase6_build(arguments: argparse.Namespace) -> int:
+    """Build a local Phase 6 split from a completed Phase 5 mart."""
+
+    try:
+        from .splits.runner import build_phase6
+
+        result = build_phase6(
+            arguments.mart_dir,
+            output_dir=arguments.output_dir,
+            report_dir=arguments.report_dir,
+            run_id=arguments.run_id,
+            overwrite=arguments.overwrite,
+            no_report=arguments.no_report,
+        )
+    except (FeatureMartError, FileNotFoundError, ValueError, OSError) as exc:
+        print(f"Phase 6 build BLOCKED: {exc}", file=sys.stderr)
+        return 1
+    print(f"Phase 6 status: {result.status}")
+    print(f"Split run directory: {result.run_directory}")
+    _render_phase6_validation(result.validation)
+    if result.report_directory:
+        print(f"Report directory: {result.report_directory}")
+    return 0 if result.status in {"PASS", "PASS WITH WARNINGS"} else 1
+
+
+def _run_phase6_validate(arguments: argparse.Namespace) -> int:
+    """Validate a completed Phase 6 run entirely offline."""
+
+    try:
+        from .splits.runner import validate_existing_split
+
+        validation = validate_existing_split(arguments.split_dir)
+    except (FeatureMartError, FileNotFoundError, ValueError, OSError) as exc:
+        print(f"Phase 6 validation BLOCKED: {exc}", file=sys.stderr)
+        return 1
+    print(f"Phase 6 validation: {validation.get('status', 'BLOCKED')}")
+    _render_phase6_validation(validation)
+    return 0 if not validation.get("errors") else 1
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run one supported CLI command."""
 
@@ -693,6 +829,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_phase5_build(arguments)
     if arguments.command == "phase5-validate":
         return _run_phase5_validate(arguments)
+    if arguments.command == "phase6-contract-check":
+        return _run_phase6_contract_check()
+    if arguments.command == "phase6-plan-check":
+        return _run_phase6_plan_check(arguments)
+    if arguments.command == "phase6-build":
+        return _run_phase6_build(arguments)
+    if arguments.command == "phase6-validate":
+        return _run_phase6_validate(arguments)
     if arguments.command in {"data-profile", "synthetic-audit", "data-quality-check", "phase3-run"}:
         return _run_phase3(arguments)
     parser.error(f"Unsupported command: {arguments.command}")

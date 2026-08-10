@@ -65,6 +65,10 @@ output into tickets or logs if local environment metadata is sensitive.
     python -m warranty_analytics_model phase5-plan-check
     python -m warranty_analytics_model phase5-build
     python -m warranty_analytics_model phase5-validate --mart-dir artifacts/feature_mart/<run_id>
+    python -m warranty_analytics_model phase6-contract-check
+    python -m warranty_analytics_model phase6-plan-check --mart-dir artifacts/feature_mart/<run_id>
+    python -m warranty_analytics_model phase6-build --mart-dir artifacts/feature_mart/<run_id>
+    python -m warranty_analytics_model phase6-validate --split-dir artifacts/splits/<run_id>
     python -m ruff check .
     python -m ruff format --check .
     python -m mypy src
@@ -115,3 +119,12 @@ lineage metadata, and the hard leakage blacklist. Phase 4 live validation is
 read-only and uses the existing local SQL Server configuration; it never creates
 a feature mart or writes business data. Reports are generated under
 reports/phase4_validation/ and contain aggregate policy and eligibility results only.
+
+Phase 6 is fully offline after Phase 5 has completed. Run
+`phase5-validate`, `phase6-plan-check`, `phase6-build`, and
+`phase6-validate` against the same timestamped mart directory. The split build
+does not query SQL Server and does not copy model features into train,
+validation, or test files. It stores claim membership, group exposure,
+evaluation-cohort metadata, manifests, and a hash-only immutable test lock.
+Use a new `--run-id` for a changed Phase 5 mart; completed split runs are not
+silently overwritten.

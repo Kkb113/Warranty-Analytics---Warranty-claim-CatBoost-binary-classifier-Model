@@ -1,0 +1,16 @@
+split:
+  strategy: chronological
+  train_fraction: 0.70
+  validation_fraction: 0.15
+  test_fraction: 0.15
+  preserve_same_date: true
+  tie_break: earlier_date
+  fraction_warning_tolerance: 0.03
+  minimum_split_fraction: 0.10
+  min_positive_block_validation: 10
+  min_positive_block_test: 10
+  min_positive_warning_validation: 20
+  min_positive_warning_test: 20
+  min_positive_warning_train: 100
+  group_exposure_enabled: true
+  fingerprint_clean_cohort_enabled: true
