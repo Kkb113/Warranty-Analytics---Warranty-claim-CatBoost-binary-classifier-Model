@@ -38,6 +38,10 @@ COHORT_COLUMNS = [
 
 
 def _reference_splits(split: str) -> set[str]:
+    if split == "TRAIN":
+        # TRAIN is the reference/development foundation, so its available
+        # groups are reference-known rather than unseen.
+        return {"TRAIN"}
     if split == "VALIDATION":
         return {"TRAIN"}
     if split == "TEST":

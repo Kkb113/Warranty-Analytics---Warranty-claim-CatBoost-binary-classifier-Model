@@ -114,11 +114,21 @@ overlap is reported as a generalization dimension rather than automatically
 treated as leakage.
 
 `evaluation_cohorts.parquet` contains one metadata row per claim. For
-validation, unseen means unseen in TRAIN. For test, unseen means unseen in
-TRAIN + VALIDATION (development). Flags include fingerprint, truck,
+TRAIN is the reference population and is not considered unseen: its available
+direct groups are reference-known, and its historical-group unseen counts are
+zero. For validation, unseen means unseen in TRAIN. For test, unseen means
+unseen in TRAIN + VALIDATION (development). Flags include fingerprint, truck,
 production-batch, and service-center cohorts plus any/all unseen historical
 supplier, component-lot, and component-batch exposure. These flags are not
 model features and do not create additional splits.
+
+Aggregate group-overlap claim counts are scoped independently by `group_type`.
+A claim can therefore be seen for one dimension and unseen for another. For
+one-to-many historical groups, a claim with a mixture of reference-known and
+unseen values may count in both the seen and unseen claim totals; the cohort
+artifact separately records `any_unseen` and `all_unseen`. The corrected Phase 6
+run supersedes the earlier aggregate overlap report while preserving the exact
+chronological assignments and TEST lock.
 
 Fingerprint overlap is a warning. A fingerprint-clean validation claim has a
 fingerprint never seen in TRAIN. A fingerprint-clean test claim has a

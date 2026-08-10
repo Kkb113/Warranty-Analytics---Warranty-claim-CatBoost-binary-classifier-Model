@@ -138,10 +138,15 @@ def group_sets(exposure: pd.DataFrame) -> dict[str, dict[str, set[str]]]:
 def _claim_ids_for_group_state(
     exposure: pd.DataFrame,
     *,
+    group_type: str,
     split: str,
     seen_column: str,
 ) -> set[Any]:
-    subset = exposure.loc[(exposure["split"] == split) & exposure[seen_column].eq(True)]
+    subset = exposure.loc[
+        (exposure["group_type"] == group_type)
+        & (exposure["split"] == split)
+        & exposure[seen_column].eq(True)
+    ]
     return set(subset["warranty_claim_key"].tolist())
 
 
@@ -162,20 +167,30 @@ def summarize_group_overlap(exposure: pd.DataFrame) -> dict[str, Any]:
         test_seen_train = test & train
         test_seen_development = test & development
         validation_seen_claims = _claim_ids_for_group_state(
-            exposure, split="VALIDATION", seen_column="seen_in_train"
+            exposure,
+            group_type=group_type,
+            split="VALIDATION",
+            seen_column="seen_in_train",
         )
         validation_unseen_claims = set(
             exposure.loc[
-                (exposure["split"] == "VALIDATION") & exposure["unseen_in_train"].eq(True),
+                (exposure["group_type"] == group_type)
+                & (exposure["split"] == "VALIDATION")
+                & exposure["unseen_in_train"].eq(True),
                 "warranty_claim_key",
             ].tolist()
         )
         test_seen_claims = _claim_ids_for_group_state(
-            exposure, split="TEST", seen_column="seen_in_development"
+            exposure,
+            group_type=group_type,
+            split="TEST",
+            seen_column="seen_in_development",
         )
         test_unseen_claims = set(
             exposure.loc[
-                (exposure["split"] == "TEST") & exposure["unseen_in_development"].eq(True),
+                (exposure["group_type"] == group_type)
+                & (exposure["split"] == "TEST")
+                & exposure["unseen_in_development"].eq(True),
                 "warranty_claim_key",
             ].tolist()
         )

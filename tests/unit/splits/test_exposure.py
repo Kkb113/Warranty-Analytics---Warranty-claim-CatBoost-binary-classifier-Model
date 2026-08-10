@@ -76,6 +76,39 @@ def _groups() -> pd.DataFrame:
     )
 
 
+def _cross_dimension_assignments() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "warranty_claim_key": [1, 2, 3, 4],
+            "claim_date": pd.to_datetime(["2025-01-01", "2025-01-02", "2025-01-03", "2025-01-04"]),
+            "split": ["TRAIN", "VALIDATION", "VALIDATION", "TEST"],
+        }
+    )
+
+
+def _cross_dimension_groups() -> pd.DataFrame:
+    rows = [
+        (1, "truck", "truck-a"),
+        (1, "production_batch", "batch-a"),
+        (2, "truck", "truck-a"),
+        (2, "production_batch", "batch-b"),
+        (3, "truck", "truck-b"),
+        (3, "production_batch", "batch-b"),
+        (4, "truck", "truck-b"),
+        (4, "production_batch", "batch-c"),
+    ]
+    return pd.DataFrame(
+        {
+            "warranty_claim_key": [row[0] for row in rows],
+            "group_type": [row[1] for row in rows],
+            "group_value_hash": [row[2] for row in rows],
+            "group_value": [row[2] for row in rows],
+            "source": ["fictional" for _ in rows],
+            "is_model_feature": [False for _ in rows],
+        }
+    )
+
+
 def test_group_exposure_seen_and_unseen_flags() -> None:
     exposure = build_group_exposure(_assignments(), _groups())
     validation_truck = exposure.loc[
@@ -126,3 +159,105 @@ def test_group_summary_is_aggregate_only() -> None:
     assert "truck" in summary["group_types"]
     assert summary["group_types"]["truck"]["test_groups_unseen_in_development"] == 1
     assert "warranty_claim_key" not in str(summary)
+
+
+def test_group_summary_scopes_claim_counts_by_group_type() -> None:
+    assignments = _cross_dimension_assignments()
+    exposure = build_group_exposure(assignments, _cross_dimension_groups())
+    summary = summarize_group_overlap(exposure)["group_types"]
+
+    truck = summary["truck"]
+    batch = summary["production_batch"]
+    assert truck["validation_claims_in_seen_groups"] == 1
+    assert truck["validation_claims_in_unseen_groups"] == 1
+    assert truck["test_claims_in_seen_groups"] == 1
+    assert truck["test_claims_in_unseen_groups"] == 0
+    assert batch["validation_claims_in_seen_groups"] == 0
+    assert batch["validation_claims_in_unseen_groups"] == 2
+    assert batch["test_claims_in_seen_groups"] == 0
+    assert batch["test_claims_in_unseen_groups"] == 1
+
+
+def test_multi_valued_supplier_counts_claim_in_seen_and_unseen_summary() -> None:
+    assignments = pd.DataFrame(
+        {
+            "warranty_claim_key": [1, 2],
+            "claim_date": pd.to_datetime(["2025-01-01", "2025-01-02"]),
+            "split": ["TRAIN", "TEST"],
+        }
+    )
+    groups = pd.DataFrame(
+        {
+            "warranty_claim_key": [1, 2, 2],
+            "group_type": [
+                "historical_supplier",
+                "historical_supplier",
+                "historical_supplier",
+            ],
+            "group_value_hash": ["supplier-a", "supplier-a", "supplier-c"],
+            "group_value": ["supplier-a", "supplier-a", "supplier-c"],
+            "source": ["fictional", "fictional", "fictional"],
+            "is_model_feature": [False, False, False],
+        }
+    )
+    exposure = build_group_exposure(assignments, groups)
+    summary = summarize_group_overlap(exposure)["group_types"]["historical_supplier"]
+
+    assert summary["test_claims_in_seen_groups"] == 1
+    assert summary["test_claims_in_unseen_groups"] == 1
+
+
+def test_train_is_reference_known_and_missing_supplier_is_not_unseen() -> None:
+    assignments = _assignments()
+    groups = _groups().loc[lambda frame: frame["group_type"] != "historical_supplier"]
+    cohorts = build_evaluation_cohorts(assignments, groups)
+    train = cohorts.loc[cohorts["warranty_claim_key"] == 1].iloc[0]
+
+    assert not bool(train["eval__fingerprint_unseen"])
+    assert bool(train["eval__fingerprint_clean"])
+    assert not bool(train["eval__truck_unseen"])
+    assert not bool(train["eval__production_batch_unseen"])
+    assert not bool(train["eval__service_center_unseen"])
+    assert int(train["eval__historical_supplier_count"]) == 0
+    assert int(train["eval__historical_supplier_seen_count"]) == 0
+    assert int(train["eval__historical_supplier_unseen_count"]) == 0
+    assert not bool(train["eval__any_historical_supplier_unseen"])
+    assert not bool(train["eval__all_historical_suppliers_unseen"])
+
+
+def test_test_reference_remains_train_plus_validation() -> None:
+    assignments = _cross_dimension_assignments()
+    groups = _cross_dimension_groups()
+    cohorts = build_evaluation_cohorts(assignments, groups)
+    validation = cohorts.loc[cohorts["warranty_claim_key"] == 3].iloc[0]
+    test = cohorts.loc[cohorts["warranty_claim_key"] == 4].iloc[0]
+
+    assert bool(validation["eval__truck_unseen"])
+    assert bool(validation["eval__production_batch_unseen"])
+    assert not bool(test["eval__truck_unseen"])
+    assert bool(test["eval__production_batch_unseen"])
+
+
+def test_group_and_cohort_outputs_are_deterministic_after_group_reordering() -> None:
+    assignments = _cross_dimension_assignments()
+    groups = _cross_dimension_groups()
+    reordered = groups.sample(frac=1.0, random_state=17).reset_index(drop=True)
+
+    pd.testing.assert_frame_equal(
+        build_group_exposure(assignments, groups),
+        build_group_exposure(assignments, reordered),
+    )
+    pd.testing.assert_frame_equal(
+        build_evaluation_cohorts(assignments, groups),
+        build_evaluation_cohorts(assignments, reordered),
+    )
+
+
+def test_group_and_cohort_artifacts_remain_target_free_and_non_feature_metadata() -> None:
+    exposure = build_group_exposure(_assignments(), _groups())
+    cohorts = build_evaluation_cohorts(_assignments(), _groups())
+
+    assert "target__high_cost_claim_flag" not in exposure.columns
+    assert "target__high_cost_claim_flag" not in cohorts.columns
+    assert not exposure["is_model_feature"].any()
+    assert not cohorts["is_model_feature"].any()
