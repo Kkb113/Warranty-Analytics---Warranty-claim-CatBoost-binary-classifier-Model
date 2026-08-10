@@ -31,3 +31,15 @@ included columns, and are validated by:
     warranty-model phase4-contract-check
 
 Phase 5 must consume these contracts and record their exact policy checksums.
+
+The Phase 5 mart contract is `claim_feature_mart_v1.yaml`. It is validated
+offline with:
+
+    warranty-model phase5-plan-check
+
+The contract maps all 41 `ALLOW_BASELINE_POC` direct fields and all 43
+`ALLOW_HISTORICAL_POC` history fields, defines the six safe history/index
+bridges, and forbids excluded ML tables, customer-derived location paths,
+current-claim repair values, and current causal-component selection. Its exact
+SHA-256 is recorded in every generated Phase 5 manifest. The technical settings
+for local Parquet output are in `configs/feature_mart.yaml`.

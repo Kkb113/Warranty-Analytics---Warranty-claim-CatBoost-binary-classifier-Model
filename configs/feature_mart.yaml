@@ -1,0 +1,10 @@
+feature_mart:
+  output_directory: artifacts/feature_mart
+  report_directory: reports/phase5_feature_mart
+  serialization_format: parquet
+  row_sort_key: warranty_claim_key
+  history_chunk_size: 10000
+  compression: snappy
+  write_manifest: true
+  write_field_lineage: true
+  validate_after_build: true

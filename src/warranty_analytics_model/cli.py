@@ -8,6 +8,7 @@ import json
 import sys
 from collections.abc import Sequence
 from pathlib import Path
+from typing import cast
 
 from . import __version__
 from .config import ConfigurationError, Settings, load_settings
@@ -23,6 +24,7 @@ from .database.metadata import collect_schema_metadata
 from .database.reporting import write_validation_reports
 from .database.schema_contract import load_schema_contract
 from .database.schema_validator import validate_schema
+from .feature_mart.models import FeatureMartError
 from .logging_config import configure_logging
 from .paths import discover_repository_root, resolve_project_paths
 
@@ -39,7 +41,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         prog="warranty-model",
-        description="Infrastructure, Phase 2 schema, Phase 3 diagnostics, and Phase 4 policy enforcement for the warranty analytics project.",
+        description="Infrastructure, schema, profiling, policy enforcement, and claim-mart commands for the warranty analytics project.",
     )
     subparsers = parser.add_subparsers(dest="command")
     subparsers.add_parser("doctor", help="Validate Phase 1 infrastructure only.")
@@ -117,6 +119,33 @@ def build_parser() -> argparse.ArgumentParser:
         default="both",
         help="Report format to write.",
     )
+    subparsers.add_parser(
+        "phase5-plan-check",
+        help="Validate the Phase 5 mart contract and extraction plan offline.",
+    )
+    phase5_build = subparsers.add_parser(
+        "phase5-build",
+        help="Build the Phase 5 claim snapshot and history bundle from read-only SQL Server data.",
+    )
+    phase5_build.add_argument("--output-dir", type=Path, help="Feature-mart output root override.")
+    phase5_build.add_argument("--report-dir", type=Path, help="Phase 5 report root override.")
+    phase5_build.add_argument("--no-report", action="store_true", help="Do not write reports.")
+    phase5_build.add_argument(
+        "--overwrite", action="store_true", help="Allow replacement of a matching completed run."
+    )
+    phase5_build.add_argument(
+        "--validate-only",
+        action="store_true",
+        help="Validate an existing mart directory instead of reading SQL Server.",
+    )
+    phase5_build.add_argument(
+        "--mart-dir", type=Path, help="Existing mart directory used with --validate-only."
+    )
+    phase5_validate = subparsers.add_parser(
+        "phase5-validate",
+        help="Validate an existing Phase 5 mart bundle without database access.",
+    )
+    phase5_validate.add_argument("--mart-dir", type=Path, required=True, help="Mart run directory.")
     return parser
 
 
@@ -146,6 +175,7 @@ def run_doctor(project_root: Path | None = None) -> tuple[bool, list[str]]:
             paths.config_dir / "base.yaml",
             paths.config_dir / "development.yaml",
             paths.config_dir / "test.yaml",
+            paths.root / "configs" / "feature_mart.yaml",
         )
         missing_files = [str(path) for path in required_files if not path.is_file()]
         if missing_files:
@@ -499,6 +529,139 @@ def _run_phase4_validate(arguments: argparse.Namespace) -> int:
     return 0
 
 
+def _render_phase5_validation(validation: dict[str, object]) -> None:
+    """Print aggregate Phase 5 validation output without record-level values."""
+
+    snapshot = validation.get("snapshot", {})
+    if isinstance(snapshot, dict):
+        print(
+            f"Snapshot rows: {snapshot.get('rows', 0)}; "
+            f"unique claims: {snapshot.get('unique_claims', 0)}; "
+            f"columns: {snapshot.get('columns', 0)}"
+        )
+        print(
+            f"Target positive/negative: {snapshot.get('positive_claims', 0)}/"
+            f"{snapshot.get('negative_claims', 0)}"
+        )
+    errors = cast(list[object], validation.get("errors", []))
+    warnings = cast(list[object], validation.get("warnings", []))
+    print(f"Errors: {len(errors)}; warnings: {len(warnings)}")
+    for warning in warnings:
+        print(f"WARNING: {warning}")
+
+
+def _run_phase5_plan_check() -> int:
+    """Validate Phase 5 contracts and mappings without a database."""
+
+    try:
+        from .feature_mart.extraction_plan import build_extraction_plan
+        from .feature_mart.mart_contract import load_mart_contract, validate_mart_contract
+        from .policy.loader import load_phase4_contracts
+
+        root = discover_repository_root()
+        schema_contract, schema_checksum = load_schema_contract(root)
+        phase4_bundle = load_phase4_contracts(root)
+        mart_contract, mart_checksum = load_mart_contract(root)
+        result = validate_mart_contract(
+            schema_contract,
+            phase4_bundle,
+            schema_contract_checksum=schema_checksum,
+            contract=mart_contract,
+            contract_checksum=mart_checksum,
+        )
+        if result.valid:
+            build_extraction_plan(schema_contract, phase4_bundle, mart_contract)
+    except (FeatureMartError, SchemaContractError, ValueError) as exc:
+        print(f"Phase 5 plan check BLOCKED: {exc}", file=sys.stderr)
+        return 1
+    if not result.valid:
+        print("Phase 5 plan check BLOCKED")
+        for error in result.errors:
+            print(f"ERROR: {error}")
+        return 1
+    print(
+        "PASS: Phase 5 plan "
+        f"direct={result.direct_materialized}/{result.direct_expected} "
+        f"historical={result.historical_mapped}/{result.historical_expected} "
+        f"mart_contract_checksum={result.mart_contract_checksum}"
+    )
+    for warning in result.warnings:
+        print(f"WARNING: {warning}")
+    return 0
+
+
+def _run_phase5_build(arguments: argparse.Namespace) -> int:
+    """Run live read-only Phase 5 construction or artifact-only validation."""
+
+    if arguments.validate_only:
+        if arguments.mart_dir is None:
+            print("--mart-dir is required with --validate-only.", file=sys.stderr)
+            return 2
+        try:
+            from .feature_mart.runner import validate_existing_mart
+
+            validation = validate_existing_mart(arguments.mart_dir)
+        except (FeatureMartError, FileNotFoundError, ValueError) as exc:
+            print(f"Phase 5 validation error: {exc}", file=sys.stderr)
+            return 1
+        print(f"Phase 5 validation: {validation.get('status', 'BLOCKED')}")
+        _render_phase5_validation(validation)
+        return 0 if not validation.get("errors") else 1
+
+    settings, status = _load_live_settings()
+    if settings is None:
+        return status
+    try:
+        from .feature_mart.runner import run_live_phase5
+
+        result = run_live_phase5(
+            settings,
+            output_dir=arguments.output_dir,
+            report_dir=arguments.report_dir,
+            no_report=arguments.no_report,
+            overwrite=arguments.overwrite,
+        )
+    except ConfigurationError as exc:
+        print(f"Configuration error: {exc}", file=sys.stderr)
+        return 2
+    except DatabaseConfigurationError as exc:
+        print(f"Database configuration error: {exc}", file=sys.stderr)
+        return 2
+    except DatabaseDriverError as exc:
+        print(f"Database driver error: {exc}", file=sys.stderr)
+        return 3
+    except DatabaseConnectionError as exc:
+        print(f"Database connection error: {exc}", file=sys.stderr)
+        return 3
+    except (FeatureMartError, UnexpectedDatabaseError, RuntimeError, ValueError, KeyError) as exc:
+        print(f"Phase 5 build error: {exc}", file=sys.stderr)
+        return 4
+    except Exception as exc:
+        print(f"Unexpected Phase 5 error: {exc}", file=sys.stderr)
+        return 4
+    print(f"Phase 5 status: {result.status}")
+    print(f"Mart run directory: {result.run_directory}")
+    _render_phase5_validation(result.validation)
+    if result.report_directory:
+        print(f"Report directory: {result.report_directory}")
+    return 0 if result.status in {"PASS", "PASS WITH WARNINGS"} else 1
+
+
+def _run_phase5_validate(arguments: argparse.Namespace) -> int:
+    """Run offline validation for an existing Phase 5 bundle."""
+
+    try:
+        from .feature_mart.runner import validate_existing_mart
+
+        validation = validate_existing_mart(arguments.mart_dir)
+    except (FeatureMartError, FileNotFoundError, ValueError) as exc:
+        print(f"Phase 5 validation error: {exc}", file=sys.stderr)
+        return 1
+    print(f"Phase 5 validation: {validation.get('status', 'BLOCKED')}")
+    _render_phase5_validation(validation)
+    return 0 if not validation.get("errors") else 1
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run one supported CLI command."""
 
@@ -524,6 +687,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_phase4_contract_check()
     if arguments.command == "phase4-validate":
         return _run_phase4_validate(arguments)
+    if arguments.command == "phase5-plan-check":
+        return _run_phase5_plan_check()
+    if arguments.command == "phase5-build":
+        return _run_phase5_build(arguments)
+    if arguments.command == "phase5-validate":
+        return _run_phase5_validate(arguments)
     if arguments.command in {"data-profile", "synthetic-audit", "data-quality-check", "phase3-run"}:
         return _run_phase3(arguments)
     parser.error(f"Unsupported command: {arguments.command}")

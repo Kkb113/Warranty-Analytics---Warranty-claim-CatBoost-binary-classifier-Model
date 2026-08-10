@@ -34,6 +34,10 @@ profiling = [
     "scipy>=1.10,<2",
     "matplotlib>=3.7,<4",
 ]
+mart = [
+    "pandas>=2.0,<3",
+    "pyarrow>=14.0,<20",
+]
 
 [project.scripts]
 warranty-model = "warranty_analytics_model.cli:main"

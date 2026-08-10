@@ -1,0 +1,355 @@
+contract_version: "1.0.0"
+version: "1.0.0"
+created_at: "2026-08-10T00:00:00Z"
+schema_contract_version: "1.0.0"
+schema_contract_checksum: "00f86ec9db8ea84d88ea53d3a95d5df4e9a455d9555013d089026a399660cb06"
+target_contract_version: "1.0.0"
+target_contract_checksum: "17f39d6abf71861bd9c9d7c514c1847cef08049a312988b1c4dec3b4b204c25b"
+feature_policy_version: "1.0.0"
+feature_policy_checksum: "1b42aef48ddaedddaae9288cec2494fcce528788c6038f14668e767403e7c3c9"
+leakage_policy_version: "1.0.0"
+leakage_policy_checksum: "fda75d50c0e6fd06c59e04a0d7cfc3dad5080b1257870021c76aa6040140ec3e"
+mart_grain: "one row = one eligible warranty claim"
+
+target:
+  artifact: claim_snapshot
+  output_column: target__high_cost_claim_flag
+  source_table: dbo.fact_warranty_claim
+  source_column: high_cost_claim_flag
+  policy: TARGET_ONLY
+  is_target: true
+  is_model_feature: false
+  is_lineage: false
+  is_control: false
+  transform_type: rename
+  join_path: []
+  as_of_rule: "stored target is copied from the eligible claim and is never used to select rows"
+
+prediction_reference:
+  output_column: claim__claim_date
+  source_table: dbo.fact_warranty_claim
+  source_column: claim_date
+  status: provisional_date_level
+  rule: "claim_date is the date-level prediction reference; strict-before history remains mandatory"
+
+direct_feature_mappings:
+  - {artifact: claim_snapshot, output_column: claim__claim_date, source_table: dbo.fact_warranty_claim, source_column: claim_date, policy: ALLOW_BASELINE_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: rename, join_path: [dbo.fact_warranty_claim.claim_date], as_of_rule: claim_date is the provisional prediction reference}
+  - {artifact: claim_snapshot, output_column: claim__odometer_miles_at_failure, source_table: dbo.fact_warranty_claim, source_column: odometer_miles_at_failure, policy: ALLOW_BASELINE_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: rename, join_path: [dbo.fact_warranty_claim.warranty_claim_key], as_of_rule: claim_submission_reference}
+  - {artifact: claim_snapshot, output_column: claim__engine_hours_at_failure, source_table: dbo.fact_warranty_claim, source_column: engine_hours_at_failure, policy: ALLOW_BASELINE_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: rename, join_path: [dbo.fact_warranty_claim.warranty_claim_key], as_of_rule: claim_submission_reference}
+  - {artifact: claim_snapshot, output_column: claim__months_in_service, source_table: dbo.fact_warranty_claim, source_column: months_in_service, policy: ALLOW_BASELINE_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: rename, join_path: [dbo.fact_warranty_claim.warranty_claim_key], as_of_rule: claim_submission_reference}
+  - {artifact: claim_snapshot, output_column: claim__warranty_coverage_status, source_table: dbo.fact_warranty_claim, source_column: warranty_coverage_status, policy: ALLOW_BASELINE_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: rename, join_path: [dbo.fact_warranty_claim.warranty_claim_key], as_of_rule: claim_submission_reference}
+  - {artifact: claim_snapshot, output_column: claim__claim_type, source_table: dbo.fact_warranty_claim, source_column: claim_type, policy: ALLOW_BASELINE_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: rename, join_path: [dbo.fact_warranty_claim.warranty_claim_key], as_of_rule: claim_submission_reference}
+  - {artifact: claim_snapshot, output_column: truck__manufacturing_plant, source_table: dbo.dim_truck, source_column: manufacturing_plant, policy: ALLOW_BASELINE_POC, is_model_feature: true, is_target: false, is_lineage: true, is_control: false, transform_type: dimension_join, join_path: [dbo.fact_warranty_claim.truck_key, dbo.dim_truck.truck_key], as_of_rule: claim_submission_reference}
+  - {artifact: claim_snapshot, output_column: truck__assembly_line, source_table: dbo.dim_truck, source_column: assembly_line, policy: ALLOW_BASELINE_POC, is_model_feature: true, is_target: false, is_lineage: true, is_control: false, transform_type: dimension_join, join_path: [dbo.fact_warranty_claim.truck_key, dbo.dim_truck.truck_key], as_of_rule: claim_submission_reference}
+  - {artifact: claim_snapshot, output_column: truck__build_date, source_table: dbo.dim_truck, source_column: build_date, policy: ALLOW_BASELINE_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: dimension_join, join_path: [dbo.fact_warranty_claim.truck_key, dbo.dim_truck.truck_key], as_of_rule: claim_submission_reference}
+  - {artifact: claim_snapshot, output_column: truck__delivery_date, source_table: dbo.dim_truck, source_column: delivery_date, policy: ALLOW_BASELINE_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: dimension_join, join_path: [dbo.fact_warranty_claim.truck_key, dbo.dim_truck.truck_key], as_of_rule: claim_submission_reference}
+  - {artifact: claim_snapshot, output_column: truck__in_service_date, source_table: dbo.dim_truck, source_column: in_service_date, policy: ALLOW_BASELINE_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: dimension_join, join_path: [dbo.fact_warranty_claim.truck_key, dbo.dim_truck.truck_key], as_of_rule: claim_submission_reference}
+  - {artifact: claim_snapshot, output_column: truck__axle_configuration, source_table: dbo.dim_truck, source_column: axle_configuration, policy: ALLOW_BASELINE_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: dimension_join, join_path: [dbo.fact_warranty_claim.truck_key, dbo.dim_truck.truck_key], as_of_rule: claim_submission_reference}
+  - {artifact: claim_snapshot, output_column: truck__fuel_type, source_table: dbo.dim_truck, source_column: fuel_type, policy: ALLOW_BASELINE_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: dimension_join, join_path: [dbo.fact_warranty_claim.truck_key, dbo.dim_truck.truck_key], as_of_rule: claim_submission_reference}
+  - {artifact: claim_snapshot, output_column: truck__emission_standard, source_table: dbo.dim_truck, source_column: emission_standard, policy: ALLOW_BASELINE_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: dimension_join, join_path: [dbo.fact_warranty_claim.truck_key, dbo.dim_truck.truck_key], as_of_rule: claim_submission_reference}
+  - {artifact: claim_snapshot, output_column: truck_model__brand, source_table: dbo.dim_truck_model, source_column: brand, policy: ALLOW_BASELINE_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: dimension_join, join_path: [dbo.dim_truck.truck_model_key, dbo.dim_truck_model.truck_model_key], as_of_rule: claim_submission_reference}
+  - {artifact: claim_snapshot, output_column: truck_model__model_name, source_table: dbo.dim_truck_model, source_column: model_name, policy: ALLOW_BASELINE_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: dimension_join, join_path: [dbo.dim_truck.truck_model_key, dbo.dim_truck_model.truck_model_key], as_of_rule: claim_submission_reference}
+  - {artifact: claim_snapshot, output_column: truck_model__model_year, source_table: dbo.dim_truck_model, source_column: model_year, policy: ALLOW_BASELINE_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: dimension_join, join_path: [dbo.dim_truck.truck_model_key, dbo.dim_truck_model.truck_model_key], as_of_rule: claim_submission_reference}
+  - {artifact: claim_snapshot, output_column: truck_model__segment, source_table: dbo.dim_truck_model, source_column: segment, policy: ALLOW_BASELINE_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: dimension_join, join_path: [dbo.dim_truck.truck_model_key, dbo.dim_truck_model.truck_model_key], as_of_rule: claim_submission_reference}
+  - {artifact: claim_snapshot, output_column: truck_model__application_type, source_table: dbo.dim_truck_model, source_column: application_type, policy: ALLOW_BASELINE_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: dimension_join, join_path: [dbo.dim_truck.truck_model_key, dbo.dim_truck_model.truck_model_key], as_of_rule: claim_submission_reference}
+  - {artifact: claim_snapshot, output_column: truck_model__cab_type, source_table: dbo.dim_truck_model, source_column: cab_type, policy: ALLOW_BASELINE_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: dimension_join, join_path: [dbo.dim_truck.truck_model_key, dbo.dim_truck_model.truck_model_key], as_of_rule: claim_submission_reference}
+  - {artifact: claim_snapshot, output_column: truck_model__engine_platform, source_table: dbo.dim_truck_model, source_column: engine_platform, policy: ALLOW_BASELINE_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: dimension_join, join_path: [dbo.dim_truck.truck_model_key, dbo.dim_truck_model.truck_model_key], as_of_rule: claim_submission_reference}
+  - {artifact: claim_snapshot, output_column: truck_model__gvwr_class, source_table: dbo.dim_truck_model, source_column: gvwr_class, policy: ALLOW_BASELINE_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: dimension_join, join_path: [dbo.dim_truck.truck_model_key, dbo.dim_truck_model.truck_model_key], as_of_rule: claim_submission_reference}
+  - {artifact: claim_snapshot, output_column: warranty_policy__coverage_months, source_table: dbo.dim_warranty_policy, source_column: coverage_months, policy: ALLOW_BASELINE_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: dimension_join, join_path: [dbo.dim_truck.warranty_policy_key, dbo.dim_warranty_policy.warranty_policy_key], as_of_rule: effective_start_date <= claim_date and (effective_end_date is null or effective_end_date >= claim_date)}
+  - {artifact: claim_snapshot, output_column: warranty_policy__coverage_miles, source_table: dbo.dim_warranty_policy, source_column: coverage_miles, policy: ALLOW_BASELINE_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: dimension_join, join_path: [dbo.dim_truck.warranty_policy_key, dbo.dim_warranty_policy.warranty_policy_key], as_of_rule: effective_start_date <= claim_date and (effective_end_date is null or effective_end_date >= claim_date)}
+  - {artifact: claim_snapshot, output_column: warranty_policy__coverage_engine_hours, source_table: dbo.dim_warranty_policy, source_column: coverage_engine_hours, policy: ALLOW_BASELINE_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: dimension_join, join_path: [dbo.dim_truck.warranty_policy_key, dbo.dim_warranty_policy.warranty_policy_key], as_of_rule: effective_start_date <= claim_date and (effective_end_date is null or effective_end_date >= claim_date)}
+  - {artifact: claim_snapshot, output_column: warranty_policy__deductible_amount, source_table: dbo.dim_warranty_policy, source_column: deductible_amount, policy: ALLOW_BASELINE_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: dimension_join, join_path: [dbo.dim_truck.warranty_policy_key, dbo.dim_warranty_policy.warranty_policy_key], as_of_rule: effective_start_date <= claim_date and (effective_end_date is null or effective_end_date >= claim_date)}
+  - {artifact: claim_snapshot, output_column: warranty_policy__coverage_type, source_table: dbo.dim_warranty_policy, source_column: coverage_type, policy: ALLOW_BASELINE_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: dimension_join, join_path: [dbo.dim_truck.warranty_policy_key, dbo.dim_warranty_policy.warranty_policy_key], as_of_rule: effective_start_date <= claim_date and (effective_end_date is null or effective_end_date >= claim_date)}
+  - {artifact: claim_snapshot, output_column: claim_calendar__day_number, source_table: dbo.dim_date, source_column: day_number, policy: ALLOW_BASELINE_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: dimension_join, join_path: [dbo.fact_warranty_claim.claim_date, dbo.dim_date.full_date], as_of_rule: claim_submission_reference}
+  - {artifact: claim_snapshot, output_column: claim_calendar__day_name, source_table: dbo.dim_date, source_column: day_name, policy: ALLOW_BASELINE_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: dimension_join, join_path: [dbo.fact_warranty_claim.claim_date, dbo.dim_date.full_date], as_of_rule: claim_submission_reference}
+  - {artifact: claim_snapshot, output_column: claim_calendar__week_number, source_table: dbo.dim_date, source_column: week_number, policy: ALLOW_BASELINE_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: dimension_join, join_path: [dbo.fact_warranty_claim.claim_date, dbo.dim_date.full_date], as_of_rule: claim_submission_reference}
+  - {artifact: claim_snapshot, output_column: claim_calendar__month_number, source_table: dbo.dim_date, source_column: month_number, policy: ALLOW_BASELINE_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: dimension_join, join_path: [dbo.fact_warranty_claim.claim_date, dbo.dim_date.full_date], as_of_rule: claim_submission_reference}
+  - {artifact: claim_snapshot, output_column: claim_calendar__month_name, source_table: dbo.dim_date, source_column: month_name, policy: ALLOW_BASELINE_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: dimension_join, join_path: [dbo.fact_warranty_claim.claim_date, dbo.dim_date.full_date], as_of_rule: claim_submission_reference}
+  - {artifact: claim_snapshot, output_column: claim_calendar__quarter_number, source_table: dbo.dim_date, source_column: quarter_number, policy: ALLOW_BASELINE_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: dimension_join, join_path: [dbo.fact_warranty_claim.claim_date, dbo.dim_date.full_date], as_of_rule: claim_submission_reference}
+  - {artifact: claim_snapshot, output_column: claim_calendar__year_number, source_table: dbo.dim_date, source_column: year_number, policy: ALLOW_BASELINE_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: dimension_join, join_path: [dbo.fact_warranty_claim.claim_date, dbo.dim_date.full_date], as_of_rule: claim_submission_reference}
+  - {artifact: claim_snapshot, output_column: claim_calendar__fiscal_month, source_table: dbo.dim_date, source_column: fiscal_month, policy: ALLOW_BASELINE_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: dimension_join, join_path: [dbo.fact_warranty_claim.claim_date, dbo.dim_date.full_date], as_of_rule: claim_submission_reference}
+  - {artifact: claim_snapshot, output_column: claim_calendar__fiscal_quarter, source_table: dbo.dim_date, source_column: fiscal_quarter, policy: ALLOW_BASELINE_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: dimension_join, join_path: [dbo.fact_warranty_claim.claim_date, dbo.dim_date.full_date], as_of_rule: claim_submission_reference}
+  - {artifact: claim_snapshot, output_column: claim_calendar__fiscal_year, source_table: dbo.dim_date, source_column: fiscal_year, policy: ALLOW_BASELINE_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: dimension_join, join_path: [dbo.fact_warranty_claim.claim_date, dbo.dim_date.full_date], as_of_rule: claim_submission_reference}
+  - {artifact: claim_snapshot, output_column: service_location__country, source_table: dbo.dim_location, source_column: country, policy: ALLOW_BASELINE_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: dimension_join, join_path: [dbo.fact_warranty_claim.service_center_key, dbo.dim_service_center.service_center_key, dbo.dim_service_center.location_key, dbo.dim_location.location_key], as_of_rule: claim_submission_reference}
+  - {artifact: claim_snapshot, output_column: service_location__region, source_table: dbo.dim_location, source_column: region, policy: ALLOW_BASELINE_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: dimension_join, join_path: [dbo.fact_warranty_claim.service_center_key, dbo.dim_service_center.service_center_key, dbo.dim_service_center.location_key, dbo.dim_location.location_key], as_of_rule: claim_submission_reference}
+  - {artifact: claim_snapshot, output_column: service_location__climate_zone, source_table: dbo.dim_location, source_column: climate_zone, policy: ALLOW_BASELINE_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: dimension_join, join_path: [dbo.fact_warranty_claim.service_center_key, dbo.dim_service_center.service_center_key, dbo.dim_service_center.location_key, dbo.dim_location.location_key], as_of_rule: claim_submission_reference}
+  - {artifact: claim_snapshot, output_column: service_location__terrain_type, source_table: dbo.dim_location, source_column: terrain_type, policy: ALLOW_BASELINE_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: dimension_join, join_path: [dbo.fact_warranty_claim.service_center_key, dbo.dim_service_center.service_center_key, dbo.dim_service_center.location_key, dbo.dim_location.location_key], as_of_rule: claim_submission_reference}
+
+lineage_mappings:
+  - {artifact: claim_snapshot, output_column: warranty_claim_key, source_table: dbo.fact_warranty_claim, source_column: warranty_claim_key, policy: CONTROL_ONLY, is_model_feature: false, is_target: false, is_lineage: true, is_control: true, transform_type: direct, join_path: [dbo.fact_warranty_claim.warranty_claim_key], as_of_rule: claim identity}
+  - {artifact: claim_snapshot, output_column: lineage__truck_key, source_table: dbo.fact_warranty_claim, source_column: truck_key, policy: CONTROL_ONLY, is_model_feature: false, is_target: false, is_lineage: true, is_control: true, transform_type: direct, join_path: [dbo.fact_warranty_claim.truck_key], as_of_rule: claim identity control}
+  - {artifact: claim_snapshot, output_column: lineage__truck_model_key, source_table: dbo.dim_truck, source_column: truck_model_key, policy: CONTROL_ONLY, is_model_feature: false, is_target: false, is_lineage: true, is_control: true, transform_type: dimension_join, join_path: [dbo.fact_warranty_claim.truck_key, dbo.dim_truck.truck_key], as_of_rule: split-control lineage}
+  - {artifact: claim_snapshot, output_column: lineage__production_batch_id, source_table: dbo.dim_truck, source_column: production_batch_id, policy: RESTRICTED_EXPERIMENTAL, is_model_feature: false, is_target: false, is_lineage: true, is_control: true, transform_type: dimension_join, join_path: [dbo.fact_warranty_claim.truck_key, dbo.dim_truck.truck_key], as_of_rule: split-control lineage only}
+  - {artifact: claim_snapshot, output_column: lineage__service_center_key, source_table: dbo.fact_warranty_claim, source_column: service_center_key, policy: RESTRICTED_EXPERIMENTAL, is_model_feature: false, is_target: false, is_lineage: true, is_control: true, transform_type: direct, join_path: [dbo.fact_warranty_claim.service_center_key], as_of_rule: split-control lineage only}
+  - {artifact: claim_snapshot, output_column: lineage__warranty_policy_key, source_table: dbo.dim_truck, source_column: warranty_policy_key, policy: CONTROL_ONLY, is_model_feature: false, is_target: false, is_lineage: true, is_control: true, transform_type: dimension_join, join_path: [dbo.fact_warranty_claim.truck_key, dbo.dim_truck.truck_key], as_of_rule: policy join control}
+  - {artifact: claim_snapshot, output_column: lineage__current_service_event_key, source_table: dbo.fact_warranty_claim, source_column: service_event_key, policy: CONTROL_ONLY, is_model_feature: false, is_target: false, is_lineage: true, is_control: true, transform_type: direct, join_path: [dbo.fact_warranty_claim.service_event_key], as_of_rule: current-event exclusion control}
+  - {artifact: claim_snapshot, output_column: lineage__policy_applicable, source_table: derived, source_column: policy_applicability, policy: CONTROL_ONLY, is_model_feature: false, is_target: false, is_lineage: true, is_control: true, transform_type: dimension_join, join_path: [dbo.dim_warranty_policy.effective_start_date, dbo.dim_warranty_policy.effective_end_date, dbo.fact_warranty_claim.claim_date], as_of_rule: effective_start_date <= claim_date and (effective_end_date is null or effective_end_date >= claim_date)}
+  - {artifact: claim_snapshot, output_column: lineage__policy_values_available, source_table: derived, source_column: policy_applicability, policy: CONTROL_ONLY, is_model_feature: false, is_target: false, is_lineage: true, is_control: true, transform_type: dimension_join, join_path: [dbo.dim_warranty_policy.effective_start_date, dbo.dim_warranty_policy.effective_end_date, dbo.fact_warranty_claim.claim_date], as_of_rule: invalid policy values are nulled without dropping the claim}
+
+historical_bridge_definitions:
+  - name: telemetry
+    artifact: telemetry_history
+    source_table: dbo.fact_telemetry_monthly
+    grain: one current claim to zero or many completed telemetry months
+    pair_key: [current_warranty_claim_key, telemetry_month_key]
+    as_of_rule: end_of_month(month_start_date) < claim_date
+    same_day_policy: exclude
+    current_record_exclusion: the month containing claim_date is excluded
+    field_mappings:
+      - {artifact: telemetry_history, output_column: telemetry__mileage_month, source_table: dbo.fact_telemetry_monthly, source_column: mileage_month, policy: ALLOW_HISTORICAL_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: history_bridge, join_path: [dbo.fact_warranty_claim.truck_key, dbo.fact_telemetry_monthly.truck_key], as_of_rule: end_of_month(month_start_date) < claim_date}
+      - {artifact: telemetry_history, output_column: telemetry__total_odometer_miles, source_table: dbo.fact_telemetry_monthly, source_column: total_odometer_miles, policy: ALLOW_HISTORICAL_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: history_bridge, join_path: [dbo.fact_warranty_claim.truck_key, dbo.fact_telemetry_monthly.truck_key], as_of_rule: end_of_month(month_start_date) < claim_date}
+      - {artifact: telemetry_history, output_column: telemetry__engine_hours_month, source_table: dbo.fact_telemetry_monthly, source_column: engine_hours_month, policy: ALLOW_HISTORICAL_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: history_bridge, join_path: [dbo.fact_warranty_claim.truck_key, dbo.fact_telemetry_monthly.truck_key], as_of_rule: end_of_month(month_start_date) < claim_date}
+      - {artifact: telemetry_history, output_column: telemetry__idle_hours_month, source_table: dbo.fact_telemetry_monthly, source_column: idle_hours_month, policy: ALLOW_HISTORICAL_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: history_bridge, join_path: [dbo.fact_warranty_claim.truck_key, dbo.fact_telemetry_monthly.truck_key], as_of_rule: end_of_month(month_start_date) < claim_date}
+      - {artifact: telemetry_history, output_column: telemetry__avg_engine_temp, source_table: dbo.fact_telemetry_monthly, source_column: avg_engine_temp, policy: ALLOW_HISTORICAL_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: history_bridge, join_path: [dbo.fact_warranty_claim.truck_key, dbo.fact_telemetry_monthly.truck_key], as_of_rule: end_of_month(month_start_date) < claim_date}
+      - {artifact: telemetry_history, output_column: telemetry__max_engine_temp, source_table: dbo.fact_telemetry_monthly, source_column: max_engine_temp, policy: ALLOW_HISTORICAL_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: history_bridge, join_path: [dbo.fact_warranty_claim.truck_key, dbo.fact_telemetry_monthly.truck_key], as_of_rule: end_of_month(month_start_date) < claim_date}
+      - {artifact: telemetry_history, output_column: telemetry__avg_oil_pressure, source_table: dbo.fact_telemetry_monthly, source_column: avg_oil_pressure, policy: ALLOW_HISTORICAL_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: history_bridge, join_path: [dbo.fact_warranty_claim.truck_key, dbo.fact_telemetry_monthly.truck_key], as_of_rule: end_of_month(month_start_date) < claim_date}
+      - {artifact: telemetry_history, output_column: telemetry__low_oil_pressure_events, source_table: dbo.fact_telemetry_monthly, source_column: low_oil_pressure_events, policy: ALLOW_HISTORICAL_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: history_bridge, join_path: [dbo.fact_warranty_claim.truck_key, dbo.fact_telemetry_monthly.truck_key], as_of_rule: end_of_month(month_start_date) < claim_date}
+      - {artifact: telemetry_history, output_column: telemetry__brake_air_pressure_alerts, source_table: dbo.fact_telemetry_monthly, source_column: brake_air_pressure_alerts, policy: ALLOW_HISTORICAL_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: history_bridge, join_path: [dbo.fact_warranty_claim.truck_key, dbo.fact_telemetry_monthly.truck_key], as_of_rule: end_of_month(month_start_date) < claim_date}
+      - {artifact: telemetry_history, output_column: telemetry__battery_voltage_alerts, source_table: dbo.fact_telemetry_monthly, source_column: battery_voltage_alerts, policy: ALLOW_HISTORICAL_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: history_bridge, join_path: [dbo.fact_warranty_claim.truck_key, dbo.fact_telemetry_monthly.truck_key], as_of_rule: end_of_month(month_start_date) < claim_date}
+      - {artifact: telemetry_history, output_column: telemetry__fault_code_count, source_table: dbo.fact_telemetry_monthly, source_column: fault_code_count, policy: ALLOW_HISTORICAL_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: history_bridge, join_path: [dbo.fact_warranty_claim.truck_key, dbo.fact_telemetry_monthly.truck_key], as_of_rule: end_of_month(month_start_date) < claim_date}
+      - {artifact: telemetry_history, output_column: telemetry__harsh_braking_events, source_table: dbo.fact_telemetry_monthly, source_column: harsh_braking_events, policy: ALLOW_HISTORICAL_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: history_bridge, join_path: [dbo.fact_warranty_claim.truck_key, dbo.fact_telemetry_monthly.truck_key], as_of_rule: end_of_month(month_start_date) < claim_date}
+      - {artifact: telemetry_history, output_column: telemetry__avg_payload_weight, source_table: dbo.fact_telemetry_monthly, source_column: avg_payload_weight, policy: ALLOW_HISTORICAL_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: history_bridge, join_path: [dbo.fact_warranty_claim.truck_key, dbo.fact_telemetry_monthly.truck_key], as_of_rule: end_of_month(month_start_date) < claim_date}
+      - {artifact: telemetry_history, output_column: telemetry__fuel_efficiency_mpg, source_table: dbo.fact_telemetry_monthly, source_column: fuel_efficiency_mpg, policy: ALLOW_HISTORICAL_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: history_bridge, join_path: [dbo.fact_warranty_claim.truck_key, dbo.fact_telemetry_monthly.truck_key], as_of_rule: end_of_month(month_start_date) < claim_date}
+      - {artifact: telemetry_history, output_column: telemetry__route_severity_score, source_table: dbo.fact_telemetry_monthly, source_column: route_severity_score, policy: ALLOW_HISTORICAL_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: history_bridge, join_path: [dbo.fact_warranty_claim.truck_key, dbo.fact_telemetry_monthly.truck_key], as_of_rule: end_of_month(month_start_date) < claim_date}
+      - {artifact: telemetry_history, output_column: telemetry__maintenance_compliance_score, source_table: dbo.fact_telemetry_monthly, source_column: maintenance_compliance_score, policy: ALLOW_HISTORICAL_POC, is_model_feature: true, is_target: false, is_lineage: false, is_control: false, transform_type: history_bridge, join_path: [dbo.fact_warranty_claim.truck_key, dbo.fact_telemetry_monthly.truck_key], as_of_rule: end_of_month(month_start_date) < claim_date}
+    control_mappings:
+      - {artifact: telemetry_history, output_column: current_warranty_claim_key, source_table: dbo.fact_warranty_claim, source_column: warranty_claim_key, policy: CONTROL_ONLY, is_lineage: true, is_control: true, transform_type: history_bridge, join_path: [dbo.fact_warranty_claim.warranty_claim_key], as_of_rule: eligible claim identity}
+      - {artifact: telemetry_history, output_column: telemetry_month_key, source_table: dbo.fact_telemetry_monthly, source_column: telemetry_month_key, policy: CONTROL_ONLY, is_lineage: true, is_control: true, transform_type: history_bridge, join_path: [dbo.fact_telemetry_monthly.telemetry_month_key], as_of_rule: completed-month gate key}
+      - {artifact: telemetry_history, output_column: lineage__truck_key, source_table: dbo.fact_telemetry_monthly, source_column: truck_key, policy: CONTROL_ONLY, is_lineage: true, is_control: true, transform_type: history_bridge, join_path: [dbo.fact_warranty_claim.truck_key, dbo.fact_telemetry_monthly.truck_key], as_of_rule: truck match control}
+      - {artifact: telemetry_history, output_column: telemetry__month_start_date, source_table: dbo.fact_telemetry_monthly, source_column: month_start_date, policy: CONTROL_ONLY, is_lineage: true, is_control: true, transform_type: temporal_filter, join_path: [dbo.fact_telemetry_monthly.month_start_date], as_of_rule: end_of_month(month_start_date) < claim_date}
+
+  - name: maintenance
+    artifact: maintenance_history
+    source_table: dbo.fact_maintenance_event
+    grain: one current claim to zero or many pre-claim maintenance events
+    pair_key: [current_warranty_claim_key, maintenance_event_key]
+    as_of_rule: maintenance_date < claim_date
+    same_day_policy: exclude
+    current_record_exclusion: same-day maintenance is excluded
+    field_mappings:
+      - {artifact: maintenance_history, output_column: maintenance__odometer_miles, source_table: dbo.fact_maintenance_event, source_column: odometer_miles, policy: ALLOW_HISTORICAL_POC, is_model_feature: true, transform_type: history_bridge, join_path: [dbo.fact_warranty_claim.truck_key, dbo.fact_maintenance_event.truck_key], as_of_rule: maintenance_date < claim_date}
+      - {artifact: maintenance_history, output_column: maintenance__engine_hours, source_table: dbo.fact_maintenance_event, source_column: engine_hours, policy: ALLOW_HISTORICAL_POC, is_model_feature: true, transform_type: history_bridge, join_path: [dbo.fact_warranty_claim.truck_key, dbo.fact_maintenance_event.truck_key], as_of_rule: maintenance_date < claim_date}
+      - {artifact: maintenance_history, output_column: maintenance__maintenance_type, source_table: dbo.fact_maintenance_event, source_column: maintenance_type, policy: ALLOW_HISTORICAL_POC, is_model_feature: true, transform_type: history_bridge, join_path: [dbo.fact_warranty_claim.truck_key, dbo.fact_maintenance_event.truck_key], as_of_rule: maintenance_date < claim_date}
+      - {artifact: maintenance_history, output_column: maintenance__scheduled_flag, source_table: dbo.fact_maintenance_event, source_column: scheduled_flag, policy: ALLOW_HISTORICAL_POC, is_model_feature: true, transform_type: history_bridge, join_path: [dbo.fact_warranty_claim.truck_key, dbo.fact_maintenance_event.truck_key], as_of_rule: maintenance_date < claim_date}
+      - {artifact: maintenance_history, output_column: maintenance__completed_on_time_flag, source_table: dbo.fact_maintenance_event, source_column: completed_on_time_flag, policy: ALLOW_HISTORICAL_POC, is_model_feature: true, transform_type: history_bridge, join_path: [dbo.fact_warranty_claim.truck_key, dbo.fact_maintenance_event.truck_key], as_of_rule: maintenance_date < claim_date}
+      - {artifact: maintenance_history, output_column: maintenance__overdue_days, source_table: dbo.fact_maintenance_event, source_column: overdue_days, policy: ALLOW_HISTORICAL_POC, is_model_feature: true, transform_type: history_bridge, join_path: [dbo.fact_warranty_claim.truck_key, dbo.fact_maintenance_event.truck_key], as_of_rule: maintenance_date < claim_date}
+      - {artifact: maintenance_history, output_column: maintenance__maintenance_cost, source_table: dbo.fact_maintenance_event, source_column: maintenance_cost, policy: ALLOW_HISTORICAL_POC, is_model_feature: true, transform_type: history_bridge, join_path: [dbo.fact_warranty_claim.truck_key, dbo.fact_maintenance_event.truck_key], as_of_rule: maintenance_date < claim_date}
+    control_mappings:
+      - {artifact: maintenance_history, output_column: current_warranty_claim_key, source_table: dbo.fact_warranty_claim, source_column: warranty_claim_key, policy: CONTROL_ONLY, is_lineage: true, is_control: true, transform_type: history_bridge, join_path: [dbo.fact_warranty_claim.warranty_claim_key], as_of_rule: eligible claim identity}
+      - {artifact: maintenance_history, output_column: maintenance_event_key, source_table: dbo.fact_maintenance_event, source_column: maintenance_event_key, policy: CONTROL_ONLY, is_lineage: true, is_control: true, transform_type: history_bridge, join_path: [dbo.fact_maintenance_event.maintenance_event_key], as_of_rule: bridge pair key}
+      - {artifact: maintenance_history, output_column: lineage__truck_key, source_table: dbo.fact_maintenance_event, source_column: truck_key, policy: CONTROL_ONLY, is_lineage: true, is_control: true, transform_type: history_bridge, join_path: [dbo.fact_warranty_claim.truck_key, dbo.fact_maintenance_event.truck_key], as_of_rule: truck match control}
+      - {artifact: maintenance_history, output_column: lineage__maintenance_service_center_key, source_table: dbo.fact_maintenance_event, source_column: service_center_key, policy: RESTRICTED_EXPERIMENTAL, is_lineage: true, is_control: true, transform_type: history_bridge, join_path: [dbo.fact_maintenance_event.service_center_key], as_of_rule: control lineage only}
+      - {artifact: maintenance_history, output_column: maintenance__maintenance_date, source_table: dbo.fact_maintenance_event, source_column: maintenance_date, policy: CONTROL_ONLY, is_lineage: true, is_control: true, transform_type: temporal_filter, join_path: [dbo.fact_maintenance_event.maintenance_date], as_of_rule: maintenance_date < claim_date}
+
+  - name: service
+    artifact: service_history
+    source_table: dbo.fact_service_event
+    grain: one current claim to zero or many prior service events
+    pair_key: [current_warranty_claim_key, service_event_key]
+    as_of_rule: service_date < claim_date and service_event_key != current_claim.service_event_key
+    same_day_policy: exclude
+    current_record_exclusion: service_event_key != current_claim.service_event_key
+    field_mappings:
+      - {artifact: service_history, output_column: service__odometer_miles, source_table: dbo.fact_service_event, source_column: odometer_miles, policy: ALLOW_HISTORICAL_POC, is_model_feature: true, transform_type: history_bridge, join_path: [dbo.fact_warranty_claim.truck_key, dbo.fact_service_event.truck_key], as_of_rule: service_date < claim_date and service_event_key != current_claim.service_event_key}
+      - {artifact: service_history, output_column: service__engine_hours, source_table: dbo.fact_service_event, source_column: engine_hours, policy: ALLOW_HISTORICAL_POC, is_model_feature: true, transform_type: history_bridge, join_path: [dbo.fact_warranty_claim.truck_key, dbo.fact_service_event.truck_key], as_of_rule: service_date < claim_date and service_event_key != current_claim.service_event_key}
+      - {artifact: service_history, output_column: service__service_type, source_table: dbo.fact_service_event, source_column: service_type, policy: ALLOW_HISTORICAL_POC, is_model_feature: true, transform_type: history_bridge, join_path: [dbo.fact_warranty_claim.truck_key, dbo.fact_service_event.truck_key], as_of_rule: service_date < claim_date and service_event_key != current_claim.service_event_key}
+    control_mappings:
+      - {artifact: service_history, output_column: current_warranty_claim_key, source_table: dbo.fact_warranty_claim, source_column: warranty_claim_key, policy: CONTROL_ONLY, is_lineage: true, is_control: true, transform_type: history_bridge, join_path: [dbo.fact_warranty_claim.warranty_claim_key], as_of_rule: eligible claim identity}
+      - {artifact: service_history, output_column: service_event_key, source_table: dbo.fact_service_event, source_column: service_event_key, policy: CONTROL_ONLY, is_lineage: true, is_control: true, transform_type: history_bridge, join_path: [dbo.fact_service_event.service_event_key], as_of_rule: current-event exclusion key}
+      - {artifact: service_history, output_column: lineage__truck_key, source_table: dbo.fact_service_event, source_column: truck_key, policy: CONTROL_ONLY, is_lineage: true, is_control: true, transform_type: history_bridge, join_path: [dbo.fact_warranty_claim.truck_key, dbo.fact_service_event.truck_key], as_of_rule: truck match control}
+      - {artifact: service_history, output_column: lineage__service_center_key, source_table: dbo.fact_service_event, source_column: service_center_key, policy: RESTRICTED_EXPERIMENTAL, is_lineage: true, is_control: true, transform_type: history_bridge, join_path: [dbo.fact_service_event.service_center_key], as_of_rule: control lineage only}
+      - {artifact: service_history, output_column: service__service_date, source_table: dbo.fact_service_event, source_column: service_date, policy: CONTROL_ONLY, is_lineage: true, is_control: true, transform_type: temporal_filter, join_path: [dbo.fact_service_event.service_date], as_of_rule: service_date < claim_date}
+
+  - name: component_installation
+    artifact: component_installation_history
+    source_table: dbo.fact_component_installation
+    grain: one current claim to zero or many pre-claim component installations
+    pair_key: [current_warranty_claim_key, installation_key]
+    as_of_rule: installed_date < claim_date
+    same_day_policy: exclude
+    current_record_exclusion: current causal_component_key is never used for selection
+    field_mappings:
+      - {artifact: component_installation_history, output_column: component_installation__quality_check_status, source_table: dbo.fact_component_installation, source_column: quality_check_status, policy: ALLOW_HISTORICAL_POC, is_model_feature: true, transform_type: history_bridge, join_path: [dbo.fact_warranty_claim.truck_key, dbo.fact_component_installation.truck_key], as_of_rule: installed_date < claim_date}
+      - {artifact: component_installation_history, output_column: component_installation__rework_flag, source_table: dbo.fact_component_installation, source_column: rework_flag, policy: ALLOW_HISTORICAL_POC, is_model_feature: true, transform_type: history_bridge, join_path: [dbo.fact_warranty_claim.truck_key, dbo.fact_component_installation.truck_key], as_of_rule: installed_date < claim_date}
+      - {artifact: component_installation_history, output_column: component_installation__torque_value, source_table: dbo.fact_component_installation, source_column: torque_value, policy: ALLOW_HISTORICAL_POC, is_model_feature: true, transform_type: history_bridge, join_path: [dbo.fact_warranty_claim.truck_key, dbo.fact_component_installation.truck_key], as_of_rule: installed_date < claim_date}
+      - {artifact: component_installation_history, output_column: component_installation__inspection_score, source_table: dbo.fact_component_installation, source_column: inspection_score, policy: ALLOW_HISTORICAL_POC, is_model_feature: true, transform_type: history_bridge, join_path: [dbo.fact_warranty_claim.truck_key, dbo.fact_component_installation.truck_key], as_of_rule: installed_date < claim_date}
+      - {artifact: component_installation_history, output_column: component__component_system, source_table: dbo.dim_component, source_column: component_system, policy: ALLOW_HISTORICAL_POC, is_model_feature: true, transform_type: dimension_join, join_path: [dbo.fact_component_installation.component_key, dbo.dim_component.component_key], as_of_rule: installed_date < claim_date}
+      - {artifact: component_installation_history, output_column: component__component_category, source_table: dbo.dim_component, source_column: component_category, policy: ALLOW_HISTORICAL_POC, is_model_feature: true, transform_type: dimension_join, join_path: [dbo.fact_component_installation.component_key, dbo.dim_component.component_key], as_of_rule: installed_date < claim_date}
+      - {artifact: component_installation_history, output_column: component__standard_life_miles, source_table: dbo.dim_component, source_column: standard_life_miles, policy: ALLOW_HISTORICAL_POC, is_model_feature: true, transform_type: dimension_join, join_path: [dbo.fact_component_installation.component_key, dbo.dim_component.component_key], as_of_rule: installed_date < claim_date}
+      - {artifact: component_installation_history, output_column: component__standard_life_months, source_table: dbo.dim_component, source_column: standard_life_months, policy: ALLOW_HISTORICAL_POC, is_model_feature: true, transform_type: dimension_join, join_path: [dbo.fact_component_installation.component_key, dbo.dim_component.component_key], as_of_rule: installed_date < claim_date}
+      - {artifact: component_installation_history, output_column: component__is_safety_critical, source_table: dbo.dim_component, source_column: is_safety_critical, policy: ALLOW_HISTORICAL_POC, is_model_feature: true, transform_type: dimension_join, join_path: [dbo.fact_component_installation.component_key, dbo.dim_component.component_key], as_of_rule: installed_date < claim_date}
+      - {artifact: component_installation_history, output_column: component__unit_cost, source_table: dbo.dim_component, source_column: unit_cost, policy: ALLOW_HISTORICAL_POC, is_model_feature: true, transform_type: dimension_join, join_path: [dbo.fact_component_installation.component_key, dbo.dim_component.component_key], as_of_rule: installed_date < claim_date}
+    control_mappings:
+      - {artifact: component_installation_history, output_column: current_warranty_claim_key, source_table: dbo.fact_warranty_claim, source_column: warranty_claim_key, policy: CONTROL_ONLY, is_lineage: true, is_control: true, transform_type: history_bridge, join_path: [dbo.fact_warranty_claim.warranty_claim_key], as_of_rule: eligible claim identity}
+      - {artifact: component_installation_history, output_column: installation_key, source_table: dbo.fact_component_installation, source_column: installation_key, policy: CONTROL_ONLY, is_lineage: true, is_control: true, transform_type: history_bridge, join_path: [dbo.fact_component_installation.installation_key], as_of_rule: bridge pair key}
+      - {artifact: component_installation_history, output_column: lineage__truck_key, source_table: dbo.fact_component_installation, source_column: truck_key, policy: CONTROL_ONLY, is_lineage: true, is_control: true, transform_type: history_bridge, join_path: [dbo.fact_warranty_claim.truck_key, dbo.fact_component_installation.truck_key], as_of_rule: truck match control}
+      - {artifact: component_installation_history, output_column: component_key, source_table: dbo.fact_component_installation, source_column: component_key, policy: CONTROL_ONLY, is_lineage: true, is_control: true, transform_type: history_bridge, join_path: [dbo.fact_component_installation.component_key, dbo.dim_component.component_key], as_of_rule: component join control}
+      - {artifact: component_installation_history, output_column: supplier_key, source_table: dbo.fact_component_installation, source_column: supplier_key, policy: CONTROL_ONLY, is_lineage: true, is_control: true, transform_type: history_bridge, join_path: [dbo.fact_component_installation.supplier_key], as_of_rule: historical group lineage only}
+      - {artifact: component_installation_history, output_column: component_lot_no, source_table: dbo.fact_component_installation, source_column: component_lot_no, policy: RESTRICTED_EXPERIMENTAL, is_lineage: true, is_control: true, transform_type: history_bridge, join_path: [dbo.fact_component_installation.component_lot_no], as_of_rule: historical group lineage only}
+      - {artifact: component_installation_history, output_column: production_batch_id, source_table: dbo.fact_component_installation, source_column: production_batch_id, policy: RESTRICTED_EXPERIMENTAL, is_lineage: true, is_control: true, transform_type: history_bridge, join_path: [dbo.fact_component_installation.production_batch_id], as_of_rule: historical group lineage only}
+      - {artifact: component_installation_history, output_column: component_installation__installed_date, source_table: dbo.fact_component_installation, source_column: installed_date, policy: CONTROL_ONLY, is_lineage: true, is_control: true, transform_type: temporal_filter, join_path: [dbo.fact_component_installation.installed_date], as_of_rule: installed_date < claim_date}
+
+  - name: prior_claim
+    artifact: prior_claim_history
+    source_table: dbo.fact_warranty_claim
+    grain: one current claim to zero or many earlier claims on the same truck
+    pair_key: [current_warranty_claim_key, prior_warranty_claim_key]
+    as_of_rule: prior_claim.claim_date < claim_date
+    same_day_policy: exclude
+    current_record_exclusion: prior_warranty_claim_key != current_warranty_claim_key
+    field_mappings:
+      - {artifact: prior_claim_history, output_column: prior_failure__failure_code, source_table: dbo.dim_failure_code, source_column: failure_code, policy: ALLOW_HISTORICAL_POC, is_model_feature: true, transform_type: dimension_join, join_path: [dbo.fact_warranty_claim.failure_code_key, dbo.dim_failure_code.failure_code_key], as_of_rule: prior_claim.claim_date < claim_date}
+      - {artifact: prior_claim_history, output_column: prior_failure__failure_description, source_table: dbo.dim_failure_code, source_column: failure_description, policy: ALLOW_HISTORICAL_POC, is_model_feature: true, transform_type: dimension_join, join_path: [dbo.fact_warranty_claim.failure_code_key, dbo.dim_failure_code.failure_code_key], as_of_rule: prior_claim.claim_date < claim_date}
+      - {artifact: prior_claim_history, output_column: prior_failure__failure_system, source_table: dbo.dim_failure_code, source_column: failure_system, policy: ALLOW_HISTORICAL_POC, is_model_feature: true, transform_type: dimension_join, join_path: [dbo.fact_warranty_claim.failure_code_key, dbo.dim_failure_code.failure_code_key], as_of_rule: prior_claim.claim_date < claim_date}
+      - {artifact: prior_claim_history, output_column: prior_failure__failure_category, source_table: dbo.dim_failure_code, source_column: failure_category, policy: ALLOW_HISTORICAL_POC, is_model_feature: true, transform_type: dimension_join, join_path: [dbo.fact_warranty_claim.failure_code_key, dbo.dim_failure_code.failure_code_key], as_of_rule: prior_claim.claim_date < claim_date}
+      - {artifact: prior_claim_history, output_column: prior_failure__severity_level, source_table: dbo.dim_failure_code, source_column: severity_level, policy: ALLOW_HISTORICAL_POC, is_model_feature: true, transform_type: dimension_join, join_path: [dbo.fact_warranty_claim.failure_code_key, dbo.dim_failure_code.failure_code_key], as_of_rule: prior_claim.claim_date < claim_date}
+      - {artifact: prior_claim_history, output_column: prior_failure__safety_related_flag, source_table: dbo.dim_failure_code, source_column: safety_related_flag, policy: ALLOW_HISTORICAL_POC, is_model_feature: true, transform_type: dimension_join, join_path: [dbo.fact_warranty_claim.failure_code_key, dbo.dim_failure_code.failure_code_key], as_of_rule: prior_claim.claim_date < claim_date}
+      - {artifact: prior_claim_history, output_column: prior_failure__recall_related_flag, source_table: dbo.dim_failure_code, source_column: recall_related_flag, policy: ALLOW_HISTORICAL_POC, is_model_feature: true, transform_type: dimension_join, join_path: [dbo.fact_warranty_claim.failure_code_key, dbo.dim_failure_code.failure_code_key], as_of_rule: prior_claim.claim_date < claim_date}
+    control_mappings:
+      - {artifact: prior_claim_history, output_column: current_warranty_claim_key, source_table: dbo.fact_warranty_claim, source_column: warranty_claim_key, policy: CONTROL_ONLY, is_lineage: true, is_control: true, transform_type: history_bridge, join_path: [dbo.fact_warranty_claim.warranty_claim_key], as_of_rule: eligible claim identity}
+      - {artifact: prior_claim_history, output_column: prior_warranty_claim_key, source_table: dbo.fact_warranty_claim, source_column: warranty_claim_key, policy: CONTROL_ONLY, is_lineage: true, is_control: true, transform_type: history_bridge, join_path: [dbo.fact_warranty_claim.warranty_claim_key], as_of_rule: prior claim identity}
+      - {artifact: prior_claim_history, output_column: lineage__truck_key, source_table: dbo.fact_warranty_claim, source_column: truck_key, policy: CONTROL_ONLY, is_lineage: true, is_control: true, transform_type: history_bridge, join_path: [dbo.fact_warranty_claim.truck_key], as_of_rule: truck match control}
+      - {artifact: prior_claim_history, output_column: prior_claim__claim_date, source_table: dbo.fact_warranty_claim, source_column: claim_date, policy: CONTROL_ONLY, is_lineage: true, is_control: true, transform_type: temporal_filter, join_path: [dbo.fact_warranty_claim.claim_date], as_of_rule: prior_claim.claim_date < claim_date}
+      - {artifact: prior_claim_history, output_column: prior_failure_code_key, source_table: dbo.fact_warranty_claim, source_column: failure_code_key, policy: REQUIRES_CONFIRMATION, is_lineage: true, is_control: true, transform_type: history_bridge, join_path: [dbo.fact_warranty_claim.failure_code_key, dbo.dim_failure_code.failure_code_key], as_of_rule: internal historical join key only}
+
+  - name: repair
+    artifact: repair_history_index
+    source_table: dbo.fact_repair_line
+    grain: one current claim to zero or many eligible prior repair lines
+    pair_key: [current_warranty_claim_key, repair_line_key]
+    as_of_rule: prior_claim.repair_end_date < claim_date and repair_line.warranty_claim_key != current_warranty_claim_key
+    same_day_policy: exclude
+    current_record_exclusion: current-claim repair lines are prohibited
+    field_mappings: []
+    control_mappings:
+      - {artifact: repair_history_index, output_column: current_warranty_claim_key, source_table: dbo.fact_warranty_claim, source_column: warranty_claim_key, policy: CONTROL_ONLY, is_lineage: true, is_control: true, transform_type: history_bridge, join_path: [dbo.fact_warranty_claim.warranty_claim_key], as_of_rule: eligible claim identity}
+      - {artifact: repair_history_index, output_column: prior_warranty_claim_key, source_table: dbo.fact_warranty_claim, source_column: warranty_claim_key, policy: CONTROL_ONLY, is_lineage: true, is_control: true, transform_type: history_bridge, join_path: [dbo.fact_repair_line.warranty_claim_key, dbo.fact_warranty_claim.warranty_claim_key], as_of_rule: prior claim repair completion gate}
+      - {artifact: repair_history_index, output_column: repair_line_key, source_table: dbo.fact_repair_line, source_column: repair_line_key, policy: CONTROL_ONLY, is_lineage: true, is_control: true, transform_type: history_bridge, join_path: [dbo.fact_repair_line.repair_line_key], as_of_rule: bridge pair key}
+      - {artifact: repair_history_index, output_column: prior_repair_end_date, source_table: dbo.fact_warranty_claim, source_column: repair_end_date, policy: CONTROL_ONLY, is_lineage: true, is_control: true, transform_type: temporal_filter, join_path: [dbo.fact_warranty_claim.repair_end_date], as_of_rule: prior_claim.repair_end_date < claim_date}
+      - {artifact: repair_history_index, output_column: component_key, source_table: dbo.fact_repair_line, source_column: component_key, policy: CONTROL_ONLY, is_lineage: true, is_control: true, transform_type: history_bridge, join_path: [dbo.fact_repair_line.component_key], as_of_rule: restricted control index only}
+      - {artifact: repair_history_index, output_column: service_event_key, source_table: dbo.fact_repair_line, source_column: service_event_key, policy: CONTROL_ONLY, is_lineage: true, is_control: true, transform_type: history_bridge, join_path: [dbo.fact_repair_line.service_event_key], as_of_rule: restricted control index only}
+
+restricted_artifact_definitions:
+  - artifact: repair_history_index
+    status: CONTROL_ONLY
+    description: Only prior-repair eligibility keys are preserved; repair values remain deferred.
+    excluded_fields: [dbo.fact_repair_line.*]
+  - artifact: claim_group_membership
+    status: NON_MODEL_METADATA
+    description: Group and duplicate-control relationships for future split design.
+
+artifact_column_mappings:
+  - {artifact: claim_group_membership, output_column: warranty_claim_key, source_table: derived, source_column: warranty_claim_key, policy: CONTROL_ONLY, is_model_feature: false, is_target: false, is_lineage: true, is_control: true, transform_type: hash_lineage, join_path: [], as_of_rule: group metadata only}
+  - {artifact: claim_group_membership, output_column: group_type, source_table: derived, source_column: group_type, policy: CONTROL_ONLY, is_model_feature: false, is_target: false, is_lineage: true, is_control: true, transform_type: hash_lineage, join_path: [], as_of_rule: group metadata only}
+  - {artifact: claim_group_membership, output_column: group_value, source_table: derived, source_column: group_value, policy: CONTROL_ONLY, is_model_feature: false, is_target: false, is_lineage: true, is_control: true, transform_type: hash_lineage, join_path: [], as_of_rule: group metadata only}
+  - {artifact: claim_group_membership, output_column: group_value_hash, source_table: derived, source_column: group_value_hash, policy: CONTROL_ONLY, is_model_feature: false, is_target: false, is_lineage: true, is_control: true, transform_type: hash_lineage, join_path: [], as_of_rule: group metadata only}
+  - {artifact: claim_group_membership, output_column: source, source_table: derived, source_column: source, policy: CONTROL_ONLY, is_model_feature: false, is_target: false, is_lineage: true, is_control: true, transform_type: hash_lineage, join_path: [], as_of_rule: group metadata only}
+  - {artifact: claim_group_membership, output_column: is_model_feature, source_table: derived, source_column: is_model_feature, policy: CONTROL_ONLY, is_model_feature: false, is_target: false, is_lineage: true, is_control: true, transform_type: hash_lineage, join_path: [], as_of_rule: group metadata only}
+
+artifact_layout:
+  root: artifacts/feature_mart/<run_id>
+  snapshot: claim_snapshot.parquet
+  histories:
+    telemetry: history/telemetry_history.parquet
+    maintenance: history/maintenance_history.parquet
+    service: history/service_history.parquet
+    component_installation: history/component_installation_history.parquet
+    prior_claim: history/prior_claim_history.parquet
+    repair: history/repair_history_index.parquet
+  lineage: lineage/claim_group_membership.parquet
+  manifest: manifest.json
+  column_manifest: column_manifest.json
+  field_lineage: field_lineage.json
+  validation: validation.json
+
+column_naming_policy:
+  direct_prefixes: [claim__, truck__, truck_model__, warranty_policy__, claim_calendar__, service_location__]
+  historical_prefixes: [telemetry__, maintenance__, service__, component_installation__, component__, prior_claim__, prior_failure__]
+  target_prefix: target__
+  control_prefixes: [lineage__, current_, prior_, repair_, component_lot_no, production_batch_id, supplier_key, component_key, service_event_key, telemetry_month_key, maintenance_event_key, installation_key]
+  raw_surrogate_keys_are_model_features: false
+
+serialization_policy:
+  format: parquet
+  compression: snappy
+  preserve_dates: true
+  preserve_nullable_numeric_values: true
+  preserve_booleans: true
+  preserve_strings: true
+  deterministic_column_order: true
+  deterministic_row_order: true
+  persist_index: false
+  null_semantics: preserve_sql_null
+
+deferred_fields:
+  - {tier: restricted, field: dbo.fact_repair_line.*, mapping_status: DEFERRED_WITH_REASON, reason: repair detail values require a separately reviewed historical availability policy}
+  - {tier: confirmation, field: dbo.fact_warranty_claim.failure_code_key, mapping_status: DEFERRED_WITH_REASON, reason: current-claim diagnostic field remains unapproved; only prior-claim internal joining is permitted}
+  - {tier: confirmation, field: dbo.fact_warranty_claim.causal_component_key, mapping_status: DEFERRED_WITH_REASON, reason: component history is truck-level and never selected by current diagnosis}
+
+source_join_paths:
+  claim_to_truck: [dbo.fact_warranty_claim.truck_key, dbo.dim_truck.truck_key]
+  truck_to_model: [dbo.dim_truck.truck_model_key, dbo.dim_truck_model.truck_model_key]
+  truck_to_policy: [dbo.dim_truck.warranty_policy_key, dbo.dim_warranty_policy.warranty_policy_key, dbo.dim_warranty_policy.effective_start_date, dbo.dim_warranty_policy.effective_end_date]
+  claim_to_calendar: [dbo.fact_warranty_claim.claim_date, dbo.dim_date.full_date]
+  service_location: [dbo.fact_warranty_claim.service_center_key, dbo.dim_service_center.service_center_key, dbo.dim_service_center.location_key, dbo.dim_location.location_key]
+  component_to_dimension: [dbo.fact_component_installation.component_key, dbo.dim_component.component_key]
+  prior_claim_to_failure: [dbo.fact_warranty_claim.failure_code_key, dbo.dim_failure_code.failure_code_key]
+
+safety_rules:
+  no_select_star: true
+  no_sql_writes: true
+  no_excluded_ml_tables: true
+  no_target_derived_features: true
+  no_historical_aggregations: true
+  no_imputation: true
+  no_categorical_encoding: true
+  no_scaling: true
+  no_text_features: true
+  no_split_assignments: true
+  no_model_training: true
+  component_history_does_not_use_current_causal_component_key: true
+  safe_scenario_fingerprint_input_columns:
+    - claim__claim_date
+    - claim__odometer_miles_at_failure
+    - claim__engine_hours_at_failure
+    - claim__months_in_service
+    - claim__warranty_coverage_status
+    - claim__claim_type
+    - truck__manufacturing_plant
+    - truck__assembly_line
+    - truck__build_date
+    - truck__delivery_date
+    - truck__in_service_date
+    - truck__axle_configuration
+    - truck__fuel_type
+    - truck__emission_standard
+    - truck_model__brand
+    - truck_model__model_name
+    - truck_model__model_year
+    - truck_model__segment
+    - truck_model__application_type
+    - truck_model__cab_type
+    - truck_model__engine_platform
+    - truck_model__gvwr_class
+    - warranty_policy__coverage_months
+    - warranty_policy__coverage_miles
+    - warranty_policy__coverage_engine_hours
+    - warranty_policy__deductible_amount
+    - warranty_policy__coverage_type
+    - claim_calendar__day_number
+    - claim_calendar__day_name
+    - claim_calendar__week_number
+    - claim_calendar__month_number
+    - claim_calendar__month_name
+    - claim_calendar__quarter_number
+    - claim_calendar__year_number
+    - claim_calendar__fiscal_month
+    - claim_calendar__fiscal_quarter
+    - claim_calendar__fiscal_year
+    - service_location__country
+    - service_location__region
+    - service_location__climate_zone
+    - service_location__terrain_type
+    - lineage__truck_model_key
+    - lineage__production_batch_id
+    - lineage__service_center_key
