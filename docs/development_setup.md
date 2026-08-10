@@ -7,7 +7,7 @@ From the repository root:
     py -3.11 -m venv .venv
     .\.venv\Scripts\Activate.ps1
     python -m pip install --upgrade pip
-    python -m pip install -e ".[dev,database,profiling]"
+    python -m pip install -e ".[dev,database,profiling,mart]"
 
 Select the development environment explicitly when needed:
 
@@ -23,7 +23,7 @@ selected for a command with:
     python3.11 -m venv .venv
     . .venv/bin/activate
     python -m pip install --upgrade pip
-    python -m pip install -e ".[dev,database,profiling]"
+    python -m pip install -e ".[dev,database,profiling,mart]"
 
 The package also supports the platform's Python 3.11 launcher where available.
 
@@ -62,6 +62,9 @@ output into tickets or logs if local environment metadata is sensitive.
     python -m warranty_analytics_model phase3-run --no-charts
     python -m warranty_analytics_model phase4-contract-check
     python -m warranty_analytics_model phase4-validate
+    python -m warranty_analytics_model phase5-plan-check
+    python -m warranty_analytics_model phase5-build
+    python -m warranty_analytics_model phase5-validate --mart-dir artifacts/feature_mart/<run_id>
     python -m ruff check .
     python -m ruff format --check .
     python -m mypy src
@@ -95,7 +98,7 @@ system-wide solely for this project.
 
 Confirm the virtual environment is active and rerun:
 
-    python -m pip install -e ".[dev,database,profiling]"
+    python -m pip install -e ".[dev,database,profiling,mart]"
 
 Run commands from the repository root so configuration discovery can locate
 pyproject.toml and configs/.

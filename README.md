@@ -7,7 +7,7 @@ unresolved business and availability questions are not inferred by code.
 
 ## Current status
 
-Current phase: **Phase 4 — Target Definition, Prediction-Time Availability, and Leakage Enforcement**.
+Current phase: **Phase 5 — Claim-Level Feature Mart Construction**.
 
 Phase 0 model-contract, Phase 1 scaffolding, Phase 2 read-only data access /
 schema validation, and the Phase 3 live profiling run are complete. The live
@@ -18,20 +18,27 @@ under `reports/data_profiling/20260810T041849Z/`.
 
 The corrected baseline includes explicit component/supplier context joins,
 as-of-safe component-installation matching, and monthly telemetry semantics
-that do not treat `engine_hours_month` as cumulative. It is diagnostic only;
-Phase 4 target approval, leakage enforcement, and feature design remain open.
+that do not treat `engine_hours_month` as cumulative. It remains diagnostic;
+Phase 4 target approval is still provisional and its warnings remain active.
 
 Phase 4 contract validation is complete offline and is the required gate before
-the live read-only target/policy audit. No predictive model has been trained
-yet, and no feature mart, inference API, or monitoring capability exists.
+the live read-only target/policy audit. The Phase 5 feature mart is built and
+validated with **PASS WITH WARNINGS**: 8,500 source claims, 8,500 eligible
+claims, 8,500 unique snapshot rows, 259 positives, 8,241 negatives, 41/41
+direct fields, and 43/43 historical fields. The run is under
+`artifacts/feature_mart/20260810T102230Z/`; aggregate reports are under
+`reports/phase5_feature_mart/20260810T102230Z/`.
+
+Feature mart built. Train/validation/test splits have not yet been created.
+No predictive model has been trained.
 The final live Phase 4 audit is READY WITH WARNINGS: 8,500 of 8,500 claims are
 eligible, positive prevalence is 3.047059%, policy coverage is 209/209, and
 there are 0 blocking errors. The aggregate report is under
-reports/phase4_validation/20260810T052019Z/.
+reports/phase4_validation/20260810T101935Z/.
 
 ## Local setup
 
-    python -m pip install -e ".[dev,database,profiling]"
+    python -m pip install -e ".[dev,database,profiling,mart]"
 
 The optional `.env` file is local-only. Copy `.env.example` to `.env` and set
 live database values only through a secure local environment. Never commit
@@ -51,13 +58,16 @@ credentials or database exports.
     warranty-model phase3-run --no-charts
     warranty-model phase4-contract-check
     warranty-model phase4-validate
+    warranty-model phase5-plan-check
+    warranty-model phase5-build
+    warranty-model phase5-validate --mart-dir artifacts/feature_mart/<run_id>
 
 Phase 3 commands share the read-only extractor but select distinct task groups:
 `data-profile` runs profiling and target/category/missingness diagnostics,
 `synthetic-audit` runs synthetic/leakage/group diagnostics,
 `data-quality-check` runs relational/temporal/operational checks, and
 `phase3-run` runs the complete workflow. CI installs the same profiling group
-with `.[dev,database,profiling]` and remains SQL Server-independent.
+with `.[dev,database,profiling,mart]` and remains SQL Server-independent.
 
 `schema-contract-check` is offline and validates the checked-in YAML. `db-check`
 and `schema-validate` require live settings such as `WARRANTY_DB_SERVER` and an
@@ -78,6 +88,14 @@ The recorded live run used a process-only
 Server certificate was not trusted; `.env` was not changed. Prefer a trusted
 server certificate for persistent use. If the local override is approved for
 development, set it only in the local environment and never commit `.env`.
+
+Phase 5 uses the Phase 4 contracts to build a local Parquet mart bundle. The
+offline `phase5-plan-check` validates all 41 direct and 43 historical mappings.
+`phase5-build` performs the required live read-only gates, writes an atomic run
+under `artifacts/feature_mart/<run_id>/`, and generates aggregate-only reports
+under `reports/phase5_feature_mart/<run_id>/`. `phase5-validate` rechecks an
+existing bundle without database access. Generated artifacts and reports are
+ignored and must not be committed.
 
 ## Repository structure
 
@@ -122,6 +140,7 @@ by exact object name only; their contents are never read.
 - [Data profiling methodology](docs/data_profiling.md)
 - [Phase 3 implementation record](docs/phase_3_data_profiling_and_synthetic_audit.md)
 - [Phase 4 target and leakage policy](docs/phase_4_target_and_leakage_policy.md)
+- [Phase 5 claim feature mart](docs/phase_5_claim_feature_mart.md)
 - [Schema contract notes](contracts/README.md)
 - [Phase 1 scaffolding record](docs/phase_1_scaffolding.md)
 - [Contributing guide](CONTRIBUTING.md)

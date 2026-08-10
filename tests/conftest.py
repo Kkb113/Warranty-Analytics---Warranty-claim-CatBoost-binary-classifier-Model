@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 import pytest
+
+from warranty_analytics_model import config as configuration_module
+
+_LIVE_DB_TESTS_REQUESTED = os.environ.get("WARRANTY_RUN_DB_TESTS", "false").casefold() == "true"
 
 _CONFIGURATION_ENVIRONMENT_VARIABLES = (
     "WARRANTY_MODEL_ENV",
@@ -36,3 +43,13 @@ def clear_configuration_environment(monkeypatch: pytest.MonkeyPatch) -> None:
 
     for variable in _CONFIGURATION_ENVIRONMENT_VARIABLES:
         monkeypatch.delenv(variable, raising=False)
+    if not _LIVE_DB_TESTS_REQUESTED:
+        repository_dotenv = (Path(__file__).resolve().parents[1] / ".env").resolve()
+        original_loader = configuration_module._load_dotenv
+
+        def isolated_dotenv(path: Path) -> dict[str, str]:
+            if path.resolve() == repository_dotenv:
+                return {}
+            return original_loader(path)
+
+        monkeypatch.setattr(configuration_module, "_load_dotenv", isolated_dotenv)

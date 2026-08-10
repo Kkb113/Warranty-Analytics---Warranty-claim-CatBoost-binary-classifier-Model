@@ -22,7 +22,7 @@ jobs:
       - name: Install package and development dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".[dev,database,profiling]"
+          python -m pip install -e ".[dev,database,profiling,mart]"
 
       - name: Ruff lint
         run: python -m ruff check .
@@ -41,3 +41,6 @@ jobs:
 
       - name: Validate Phase 4 policy contracts offline
         run: warranty-model phase4-contract-check
+
+      - name: Validate Phase 5 mart plan offline
+        run: warranty-model phase5-plan-check

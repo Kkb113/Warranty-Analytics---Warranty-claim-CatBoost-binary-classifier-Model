@@ -6,8 +6,10 @@ The repository is a configuration-driven Python package for future truck-warrant
 claim modeling. Phase 1 implements package, configuration, path, logging,
 reproducibility, CLI, and quality infrastructure. Phase 2 adds read-only SQL
 Server catalog access and schema validation. Phase 3 adds contract-scoped,
-read-only data profiling and synthetic-data auditing. No phase constructs a
-production feature mart, trains a model, or serves inference.
+read-only data profiling and synthetic-data auditing. Phase 4 versions target,
+availability, and leakage policy. Phase 5 builds a local, contract-driven,
+read-only claim snapshot and as-of history bundle. No phase trains a model or
+serves inference.
 
 ## Package structure
 
@@ -23,7 +25,8 @@ production feature mart, trains a model, or serves inference.
   Phase 3 profiling extractor is diagnostic and contract-scoped, not an
   ingestion or feature pipeline.
 - validation/: Phase 2 schema comparison and later logical data-quality boundary.
-- features/: Phase 5 boundary for claim-time feature-mart construction.
+- feature_mart/: Phase 5 claim snapshot, as-of history bridges, manifests, and validation.
+- features/: later structured feature-engineering boundary.
 - models/: Phase 5 and later boundary for training and model artifacts.
 - evaluation/: Phase 5 and later boundary for metrics and calibration.
 - inference/: Phase 5 and later boundary for inference; no inference exists in
@@ -33,7 +36,7 @@ production feature mart, trains a model, or serves inference.
 - logging_config.py: standard-library console and optional file logging.
 - reproducibility.py: deterministic Python random seeding.
 - cli.py: infrastructure and schema commands plus explicit live Phase 3
-  profiling/audit and Phase 4 policy-validation commands.
+  profiling/audit, Phase 4 policy validation, and Phase 5 mart commands.
 
 ## Corrected Phase 3 diagnostic flow
 
@@ -118,8 +121,9 @@ settings.
 - Phase 3: data profiling, synthetic-data audit, and logical data-quality work.
 - Phase 4: stored-target validation, claim eligibility, prediction-time
   availability policy, historical as-of rules, leakage enforcement, and
-  versioned feature/lineage allowlists. It does not construct the feature mart.
-- Phase 5: claim-level feature-mart construction from the Phase 4 contracts.
+  versioned feature/lineage allowlists.
+- Phase 5: claim-level snapshot and safe history-mart construction from the
+  Phase 4 contracts; no flattening, imputation, splits, or model training.
 - Phase 6 and later: split design, feature engineering, model training,
   evaluation, calibration, inference, and monitoring.
 

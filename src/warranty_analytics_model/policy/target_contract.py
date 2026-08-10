@@ -61,6 +61,39 @@ def _safe_truck_keys(trucks: pd.DataFrame, key_column: str) -> set[object]:
     return set(trucks[key_column].dropna().tolist())
 
 
+def claim_eligibility_mask(
+    claims: pd.DataFrame,
+    trucks: pd.DataFrame,
+    *,
+    target_column: str = "high_cost_claim_flag",
+    claim_key_column: str = "warranty_claim_key",
+    claim_date_column: str = "claim_date",
+    truck_key_column: str = "truck_key",
+) -> pd.Series:
+    """Return the exact Phase 4 eligible-row mask for downstream mart construction."""
+
+    required = {
+        claim_key_column,
+        claim_date_column,
+        target_column,
+        truck_key_column,
+    }
+    missing = sorted(required - set(claims.columns))
+    if missing:
+        raise Phase4ContractError(f"Eligibility input is missing columns: {', '.join(missing)}")
+    target = pd.to_numeric(claims[target_column], errors="coerce")
+    claim_dates = pd.to_datetime(claims[claim_date_column], errors="coerce")
+    duplicate_keys = _duplicate_claim_keys(claims, claim_key_column)
+    missing_keys = claims[claim_key_column].isna()
+    null_target = target.isna()
+    invalid_target = target.notna() & ~target.isin([0, 1])
+    missing_dates = claim_dates.isna()
+    truck_keys = _safe_truck_keys(trucks, truck_key_column)
+    unresolved_trucks = ~claims[truck_key_column].isin(truck_keys)
+    eligible = ~(missing_keys | duplicate_keys | null_target | invalid_target | missing_dates)
+    return eligible & ~unresolved_trucks
+
+
 def validate_claim_eligibility(
     claims: pd.DataFrame,
     trucks: pd.DataFrame,
