@@ -9,9 +9,12 @@ unresolved business and availability questions are not inferred by code.
 
 Current phase: **Phase 3 — Data Profiling and Synthetic Data Audit**.
 
-Phase 0 model-contract, Phase 1 scaffolding, and Phase 2 read-only data access /
-schema validation are complete. The Phase 3 diagnostic pipeline is implemented
-and ready for an explicit live run; its offline tests use fictional fixtures.
+Phase 0 model-contract, Phase 1 scaffolding, Phase 2 read-only data access /
+schema validation, and the Phase 3 live profiling run are complete. The live
+run finished with **READY WITH WARNINGS**: all 16 approved tables and 392,352
+rows were profiled, with 0 errors and 9 warnings. The timestamped aggregate
+reports are under `reports/data_profiling/20260810T032748Z/`.
+
 No predictive model has been trained yet, and no feature mart, inference API,
 or monitoring capability exists.
 
@@ -40,7 +43,14 @@ credentials or database exports.
 and `schema-validate` require live settings such as `WARRANTY_DB_SERVER` and an
 installed Microsoft ODBC Driver 18. `schema-validate` writes timestamped JSON
 and Markdown reports under `reports/schema_validation/`; use `--no-report` to
-disable output or `--strict` to treat warnings as blocking.
+disable output or `--strict` to treat warnings as blocking. `phase3-run` writes
+timestamped aggregate JSON/Markdown reports under `reports/data_profiling/`.
+
+The recorded live run used a process-only
+`WARRANTY_DB_TRUST_SERVER_CERTIFICATE=true` override because the local SQL
+Server certificate was not trusted; `.env` was not changed. Prefer a trusted
+server certificate for persistent use. If the local override is approved for
+development, set it only in the local environment and never commit `.env`.
 
 ## Repository structure
 

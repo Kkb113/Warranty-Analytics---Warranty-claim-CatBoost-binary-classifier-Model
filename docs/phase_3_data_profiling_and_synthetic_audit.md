@@ -52,10 +52,65 @@ records.
 ## Findings and live status
 
 The Phase 3 implementation and fictional offline tests completed successfully.
-The local live database status must be taken from an actual operator run of
-`db-check`, `schema-validate`, and `phase3-run`; this record does not infer
-live row counts or target prevalence from the Phase 2 estimates. Any live
-summary must document exact counts for all 16 tables and the claim target.
+The live run completed on 2026-08-10 UTC with `db-check` and
+`schema-validate` passing, followed by `phase3-run --no-charts --format both
+--fail-on-error`. The run status is **READY WITH WARNINGS**: 0 errors, 9
+warnings, and 0 informational findings. The report is aggregate-only and is
+stored in the ignored directory
+`reports/data_profiling/20260810T032748Z/`.
+
+The live run profiled these exact approved-table row counts:
+
+| Table | Rows |
+|---|---:|
+| `dbo.dim_component` | 350 |
+| `dbo.dim_customer` | 500 |
+| `dbo.dim_date` | 1,827 |
+| `dbo.dim_failure_code` | 120 |
+| `dbo.dim_location` | 75 |
+| `dbo.dim_service_center` | 100 |
+| `dbo.dim_supplier` | 100 |
+| `dbo.dim_truck` | 5,000 |
+| `dbo.dim_truck_model` | 20 |
+| `dbo.dim_warranty_policy` | 10 |
+| `dbo.fact_component_installation` | 90,000 |
+| `dbo.fact_maintenance_event` | 42,000 |
+| `dbo.fact_repair_line` | 29,750 |
+| `dbo.fact_service_event` | 34,000 |
+| `dbo.fact_telemetry_monthly` | 180,000 |
+| `dbo.fact_warranty_claim` | 8,500 |
+| **Total** | **392,352** |
+
+The target audit found 8,500 usable claims, 259 positive/high-cost claims
+(3.047059%), 8,241 negative claims (96.952941%), and no null or invalid target
+values. The target is imbalanced. `total_claim_cost` separated the target with
+an empirical candidate threshold of 9,999.525, maximum negative 9,998.14,
+minimum positive 10,000.91, zero exceptions, and no distribution overlap;
+this is evidence of a likely synthetic generation rule, not an approved
+business definition.
+
+The nine live warnings were: high missingness in
+`dim_warranty_policy.effective_end_date` (60.0%) and
+`fact_repair_line.part_no` (71.428571%); target imbalance; 44,193 telemetry
+missing-month gaps; 87,526 telemetry engine-hours decreases; synthetic
+identifier leakage; 293 supported target-pure groups; duplicate scenario
+families in repair-line and repair-pattern fingerprints; and one sparse
+category field. No temporal rule violations, maintenance logical conflicts,
+duplicate event records, or foreign-key orphans were observed. Repair-line
+part numbers were missing in 21,250 rows; service/repair and component/supplier
+audits otherwise completed with aggregate diagnostics.
+
+Fourteen suspected post-outcome leakage fields were quantified:
+`total_claim_cost`, `labor_cost`, `parts_cost`, `other_cost`,
+`diagnostic_cost`, `towing_cost`, `approved_amount`, `rejected_amount`,
+`customer_paid_amount`, `days_to_repair`, `root_cause_category`,
+`claim_status`, `repeat_claim_flag`, and `potential_recall_flag`.
+
+The database connection required a process-only
+`WARRANTY_DB_TRUST_SERVER_CERTIFICATE=true` override because the local SQL
+Server certificate was not trusted. The repository `.env` was not changed and
+no credentials were included in the reports. A trusted server certificate is
+preferred for persistent use.
 
 Offline tests specifically demonstrate threshold-separation evidence,
 post-outcome leakage diagnostics, identifier/group purity, duplicate and text
@@ -78,8 +133,6 @@ about the live warranty population.
 
 ## Definition of done
 
-Implementation scope is complete for the reproducible offline pipeline and
-quality gates. Full Phase 3 data-availability completion remains conditional on
-the explicit live run documenting all 16 exact counts and audit results. No
-database writes, excluded-table reads, production features, train/test split,
-or predictive model training occurred.
+Implementation scope and the live Phase 3 data-availability audit are complete
+with documented warnings. No database writes, excluded-table reads, production
+features, train/test split, or predictive model training occurred.
