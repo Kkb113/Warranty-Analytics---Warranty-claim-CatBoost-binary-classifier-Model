@@ -177,12 +177,26 @@ def quality_diagnostics(
         elif values.dropna().nunique() <= 1:
             constant.append(item.feature_name)
         diagnostics[item.feature_name] = entry
+    coverage_out_of_range: dict[str, int] = {}
+    for column in (
+        "telemetry__3m__coverage_ratio",
+        "telemetry__6m__coverage_ratio",
+        "telemetry__12m__coverage_ratio",
+        "telemetry__24m__coverage_ratio",
+    ):
+        if column not in frame:
+            continue
+        values = pd.to_numeric(frame[column], errors="coerce")
+        invalid = values.notna() & ((values < 0) | (values > 1))
+        if int(invalid.sum()):
+            coverage_out_of_range[column] = int(invalid.sum())
     return {
         "train_row_count": int(len(train)),
         "features": diagnostics,
         "all_null_train_features": all_null,
         "constant_train_features": constant,
         "high_cardinality_categorical_warnings": high_cardinality,
+        "telemetry_coverage_out_of_range": coverage_out_of_range,
     }
 
 

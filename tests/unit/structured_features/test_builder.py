@@ -9,6 +9,7 @@ from warranty_analytics_model.structured_features.builder import build_feature_m
 from warranty_analytics_model.structured_features.models import StructuredFeatureSettings
 from warranty_analytics_model.structured_features.windows import (
     add_claim_dates,
+    expected_completed_months,
     per_claim_slope,
     safe_divide,
 )
@@ -208,6 +209,56 @@ def test_window_boundary_and_claim_month_rules_are_enforced() -> None:
     unsafe = safe.assign(telemetry__month_start_date=pd.Timestamp("2024-06-01"))
     with pytest.raises(ValueError, match="Unsafe same-day/future"):
         add_claim_dates(unsafe, claims, "telemetry__month_start_date", telemetry=True)
+
+
+def test_completed_month_denominator_excludes_claim_month_for_all_date_edges() -> None:
+    service = pd.Series(pd.to_datetime(["2023-01-01", "2023-01-01", "2023-01-01"]))
+    claims = pd.Series(pd.to_datetime(["2024-06-15", "2024-06-01", "2024-06-30"]))
+    result = expected_completed_months(service, claims, 3)
+    assert result.tolist() == [3.0, 3.0, 3.0]
+
+
+def test_completed_month_denominator_respects_in_service_start_and_no_eligible_range() -> None:
+    limited = expected_completed_months(
+        pd.Series(pd.to_datetime(["2024-05-10"])),
+        pd.Series(pd.to_datetime(["2024-06-15"])),
+        3,
+    )
+    assert limited.iloc[0] == 1.0
+    no_completed_month = expected_completed_months(
+        pd.Series(pd.to_datetime(["2024-06-01", None])),
+        pd.Series(pd.to_datetime(["2024-06-15", "2024-06-15"])),
+        0,
+    )
+    assert pd.isna(no_completed_month.iloc[0])
+    assert pd.isna(no_completed_month.iloc[1])
+
+
+def test_perfect_telemetry_coverage_is_one_and_never_exceeds_one() -> None:
+    result = _build()
+    coverage = pd.to_numeric(result["telemetry__3m__coverage_ratio"], errors="coerce")
+    assert coverage.iloc[0] == 1.0
+    assert (coverage.dropna() <= 1.0).all()
+    assert (coverage.dropna() >= 0.0).all()
+
+
+def test_target_can_be_removed_before_feature_construction() -> None:
+    frames = _frames()
+    frames["claim_snapshot"] = frames["claim_snapshot"].drop(
+        columns=["target__high_cost_claim_flag"]
+    )
+    result = _build(frames)
+    assert "target__high_cost_claim_flag" not in result.columns
+
+
+def test_event_keys_are_controls_and_do_not_change_non_tied_features() -> None:
+    first = _build()
+    changed = _frames()
+    changed["maintenance_history"] = changed["maintenance_history"].assign(
+        maintenance_event_key=[1101, 1102, 1103, 1201]
+    )
+    second = _build(changed)
+    pd.testing.assert_frame_equal(first, second)
 
 
 def test_ratio_and_trend_safety() -> None:

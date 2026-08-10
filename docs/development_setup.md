@@ -69,6 +69,10 @@ output into tickets or logs if local environment metadata is sensitive.
     python -m warranty_analytics_model phase6-plan-check --mart-dir artifacts/feature_mart/<run_id>
     python -m warranty_analytics_model phase6-build --mart-dir artifacts/feature_mart/<run_id>
     python -m warranty_analytics_model phase6-validate --split-dir artifacts/splits/<run_id>
+    python -m warranty_analytics_model phase7-contract-check
+    python -m warranty_analytics_model phase7-plan-check --mart-dir artifacts/feature_mart/<run_id> --split-dir artifacts/splits/<run_id>
+    python -m warranty_analytics_model phase7-build --mart-dir artifacts/feature_mart/<run_id> --split-dir artifacts/splits/<run_id>
+    python -m warranty_analytics_model phase7-validate --feature-dir artifacts/structured_features/<run_id>
     python -m ruff check .
     python -m ruff format --check .
     python -m mypy src
@@ -128,3 +132,11 @@ validation, or test files. It stores claim membership, group exposure,
 evaluation-cohort metadata, manifests, and a hash-only immutable test lock.
 Use a new `--run-id` for a changed Phase 5 mart; completed split runs are not
 silently overwritten.
+
+Phase 7 is fully offline after the exact Phase 5 mart and corrected Phase 6
+split have completed. Run `phase5-validate` against the selected mart,
+`phase6-validate` against the corrected split, then `phase7-plan-check`,
+`phase7-build`, and `phase7-validate` using those same inputs. Feature
+matrices, manifests, diagnostics, and reports are generated locally under
+ignored `artifacts/structured_features/` and
+`reports/phase7_structured_features/` directories.

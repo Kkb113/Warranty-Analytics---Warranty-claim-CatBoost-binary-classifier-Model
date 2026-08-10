@@ -48,6 +48,7 @@ from warranty_analytics_model.structured_features.runner import (
     phase7_contract_check,
     phase7_run_id,
 )
+from warranty_analytics_model.structured_features.source_policy import validate_lineage_sources
 from warranty_analytics_model.structured_features.validation import validate_feature_directory
 
 
@@ -77,6 +78,78 @@ def test_phase7_contract_and_configuration_pass() -> None:
         "telemetry_history",
         "repair_history_index",
     }
+
+
+def test_feature_lineage_distinguishes_values_from_controls() -> None:
+    assignments = _assignments()
+    built = build_feature_matrix(_frames(), assignments, StructuredFeatureSettings())
+    definitions = {item.feature_name: item for item in built.definitions}
+    event_count = definitions["maintenance__3m__event_count"]
+    fault_sum = definitions["telemetry__12m__fault_code_count__sum"]
+    recency = definitions["maintenance__days_since_last_event"]
+    prior_count = definitions["prior_claim__3m__claim_count"]
+    latest_type = definitions["maintenance__last_type"]
+    assert "maintenance_event_key" in event_count.control_sources
+    assert "maintenance_event_key" not in event_count.value_sources
+    assert fault_sum.value_sources == ("telemetry__fault_code_count",)
+    assert "telemetry__month_start_date" in fault_sum.control_sources
+    assert set(recency.value_sources) == {
+        "maintenance__maintenance_date",
+        "claim__claim_date",
+    }
+    assert "prior_warranty_claim_key" in prior_count.control_sources
+    assert "prior_warranty_claim_key" not in prior_count.value_sources
+    assert latest_type.value_sources == ("maintenance__maintenance_type",)
+    assert "maintenance_event_key" in latest_type.control_sources
+    result = validate_lineage_sources(definition_payload(built.definitions))
+    assert result["valid"] is True
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "supplier_key",
+        "production_batch_id",
+        "target__high_cost_claim_flag",
+        "causal_part_no",
+        "total_claim_cost",
+    ],
+)
+def test_lineage_policy_rejects_unsafe_value_sources(source: str) -> None:
+    result = validate_lineage_sources(
+        {
+            "fictional_feature": {
+                "is_model_feature": True,
+                "source_columns": [source],
+                "value_sources": [source],
+                "control_sources": [],
+            }
+        }
+    )
+    assert result["valid"] is False
+    assert source in " ".join(result["errors"])
+
+
+def test_control_only_source_is_allowed_only_as_control_metadata() -> None:
+    result = validate_lineage_sources(
+        {
+            "event_count": {
+                "is_model_feature": True,
+                "source_columns": ["maintenance_event_key"],
+                "value_sources": [],
+                "control_sources": ["maintenance_event_key"],
+            }
+        }
+    )
+    assert result["valid"] is True
+
+
+def test_telemetry_coverage_range_is_reported_as_structural_diagnostic() -> None:
+    built = build_feature_matrix(_frames(), _assignments(), StructuredFeatureSettings())
+    frame = built.frame.copy()
+    frame.loc[0, "telemetry__3m__coverage_ratio"] = 1.1
+    quality = quality_diagnostics(frame, built.definitions)
+    assert quality["telemetry_coverage_out_of_range"] == {"telemetry__3m__coverage_ratio": 1}
 
 
 def test_manifest_and_validation_preserve_frozen_membership(tmp_path: Path) -> None:
@@ -145,6 +218,13 @@ def test_manifest_and_validation_preserve_frozen_membership(tmp_path: Path) -> N
     validation = validate_feature_directory(feature_dir, project_root=Path.cwd(), inputs=inputs)
     assert validation["errors"] == []
     assert validation["checks"]["test_lock_valid"] is True
+    quality_path = feature_dir / "feature_quality.json"
+    quality_payload = json.loads(quality_path.read_text(encoding="utf-8"))
+    quality_payload["telemetry_coverage_out_of_range"] = {"telemetry__3m__coverage_ratio": 1}
+    quality_path.write_text(json.dumps(quality_payload), encoding="utf-8")
+    blocked = validate_feature_directory(feature_dir, project_root=Path.cwd(), inputs=inputs)
+    assert blocked["status"] == "BLOCKED"
+    assert any("outside [0, 1]" in error for error in blocked["errors"])
     write_phase7_reports(
         tmp_path / "reports",
         manifest={

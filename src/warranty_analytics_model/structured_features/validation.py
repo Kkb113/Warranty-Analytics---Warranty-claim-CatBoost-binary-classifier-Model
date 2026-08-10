@@ -15,6 +15,7 @@ from .contract import validate_structured_feature_contract
 from .input import load_phase7_inputs, verify_frozen_membership
 from .manifest import ordered_feature_frame
 from .models import Phase7Inputs, StructuredFeatureError
+from .source_policy import validate_lineage_sources
 
 
 def _read_json(path: Path, label: str) -> dict[str, Any]:
@@ -79,6 +80,8 @@ def validate_feature_directory(
         "repair_notes",
     )
     model_names = [name for name, item in lineage.items() if item.get("is_model_feature") is True]
+    source_policy = validate_lineage_sources(lineage, project_root=root)
+    errors.extend(str(item) for item in source_policy.get("errors", []))
     for name in model_names:
         if any(token in name.casefold() for token in forbidden_columns):
             errors.append(f"Prohibited/restricted source appears as model feature: {name}")
@@ -162,6 +165,14 @@ def validate_feature_directory(
         values = _read_optional_quality(directory / "feature_quality.json", item)
         if values:
             warnings.append(f"{item}: {len(values)} warning(s).")
+    coverage_out_of_range = _read_optional_quality_value(
+        directory / "feature_quality.json", "telemetry_coverage_out_of_range"
+    )
+    if coverage_out_of_range:
+        errors.append(
+            "Telemetry coverage ratio is outside [0, 1]: "
+            + ", ".join(sorted(str(item) for item in coverage_out_of_range))
+        )
     status = "BLOCKED" if errors else ("PASS WITH WARNINGS" if warnings else "PASS")
     return {
         "status": status,
@@ -179,6 +190,9 @@ def validate_feature_directory(
             "file_hash_valid": file_hash == sha256_file(directory / "structured_features.parquet"),
             "positive_infinity_count": positive_infinity,
             "negative_infinity_count": negative_infinity,
+            "source_policy_valid": source_policy.get("valid", False),
+            "coverage_range_valid": not bool(coverage_out_of_range),
+            "telemetry_coverage_out_of_range": coverage_out_of_range,
         },
         "row_count": int(len(frame)),
         "column_count": int(len(frame.columns)),
@@ -196,6 +210,15 @@ def _read_optional_quality(path: Path, key: str) -> list[Any]:
         return value if isinstance(value, list) else []
     except (OSError, json.JSONDecodeError):
         return []
+
+
+def _read_optional_quality_value(path: Path, key: str) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        value = payload.get(key, {})
+        return value if isinstance(value, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
 
 
 TARGET = "target__high_cost_claim_flag"

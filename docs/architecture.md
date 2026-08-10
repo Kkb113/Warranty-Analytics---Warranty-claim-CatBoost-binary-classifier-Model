@@ -28,7 +28,8 @@ serves inference.
 - feature_mart/: Phase 5 claim snapshot, as-of history bridges, manifests, and validation.
 - splits/: Phase 6 chronological assignments, test-locking, group exposure,
   evaluation cohorts, manifests, and offline validation.
-- features/: later structured feature-engineering boundary.
+- structured_features/: Phase 7 deterministic structured feature construction,
+  source-policy lineage, manifests, quality diagnostics, and offline validation.
 - models/: Phase 5 and later boundary for training and model artifacts.
 - evaluation/: Phase 5 and later boundary for metrics and calibration.
 - inference/: Phase 5 and later boundary for inference; no inference exists in
@@ -130,8 +131,11 @@ settings.
 - Phase 6: deterministic chronological split design, frozen test membership,
   group-exposure diagnostics, and evaluation cohorts. No feature engineering,
   target transformation, resampling, model training, or model metrics.
-- Phase 7 and later: feature engineering, model training, evaluation,
-  calibration, inference, and monitoring.
+- Phase 7: deterministic structured feature engineering from the locked Phase 5
+  mart and Phase 6 split; no model training or metrics.
+- Phase 8: text feature development; Phase 7 defers failure-description text.
+- Phase 9: baseline model training.
+- Later phases: evaluation, calibration, inference, and monitoring.
 
 These boundaries preserve the Phase 0 contract and prevent infrastructure work
 from implying that later capabilities already exist.

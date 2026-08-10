@@ -68,4 +68,9 @@ per-column lineage. Run the database-independent contract check with:
 
 Phase 7 generated feature matrices, manifests, diagnostics, and reports remain
 local ignored outputs. The target is sealed for Phase 15; text and repair
-details remain deferred.
+details remain deferred. The Phase 7 telemetry coverage denominator counts
+only completed calendar months strictly before the claim month; the claim month
+is excluded from both the safe-history numerator and the expected-month
+denominator. Feature lineage separately records `value_sources` and
+`control_sources`; keys and temporal filters used only for alignment, counting,
+ordering, or as-of safety are never treated as raw predictive values.

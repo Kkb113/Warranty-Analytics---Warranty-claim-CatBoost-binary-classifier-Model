@@ -54,6 +54,107 @@ RESTRICTED_TOKENS = {
     "group_hash",
     "cohort",
 }
+_DATE_SOURCE_SUFFIXES = ("_date", "_month_start_date")
+_CONTROL_SOURCE_TOKENS = (
+    "_key",
+    "warranty_claim_key",
+    "supplier_key",
+    "component_lot_no",
+    "production_batch_id",
+    "vin",
+    "serial",
+    "technician",
+    "inspector",
+)
+_DATE_VALUE_AGGREGATIONS = {
+    "date_arithmetic",
+    "recency",
+    "mean_interval",
+    "std_interval",
+    "least_squares_slope",
+    "calendar_span",
+    "missing_months",
+    "coverage_ratio",
+}
+_HISTORICAL_CONTROL_SOURCES: dict[str, tuple[str, ...]] = {
+    "telemetry_history": (
+        "current_warranty_claim_key",
+        "telemetry_month_key",
+        "telemetry__month_start_date",
+        "claim__claim_date",
+    ),
+    "maintenance_history": (
+        "current_warranty_claim_key",
+        "maintenance_event_key",
+        "maintenance__maintenance_date",
+        "claim__claim_date",
+    ),
+    "service_history": (
+        "current_warranty_claim_key",
+        "service_event_key",
+        "service__service_date",
+        "claim__claim_date",
+    ),
+    "component_installation_history": (
+        "current_warranty_claim_key",
+        "installation_key",
+        "component_installation__installed_date",
+        "claim__claim_date",
+    ),
+    "prior_claim_history": (
+        "current_warranty_claim_key",
+        "prior_warranty_claim_key",
+        "prior_claim__claim_date",
+        "claim__claim_date",
+    ),
+}
+
+
+def _is_date_source(source: str) -> bool:
+    return source.casefold().endswith(_DATE_SOURCE_SUFFIXES)
+
+
+def _is_control_source(source: str) -> bool:
+    lowered = source.casefold()
+    return any(token in lowered for token in _CONTROL_SOURCE_TOKENS)
+
+
+def _infer_source_roles(
+    source_columns: Iterable[str],
+    *,
+    aggregation: str | None,
+    source_artifact: str,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Split source columns into predictive values and deterministic controls.
+
+    Historical keys and dates are never silently treated as predictive values.
+    Date values are promoted to value sources only when their numeric calendar
+    position or interval contributes to the derived feature.
+    """
+
+    columns = tuple(dict.fromkeys(source_columns))
+    value_sources: list[str] = []
+    for source in columns:
+        is_control = _is_control_source(source) or _is_date_source(source)
+        if aggregation in _DATE_VALUE_AGGREGATIONS and _is_date_source(source):
+            is_control = False
+        if aggregation == "nunique_month":
+            is_control = True
+        if (
+            aggregation == "count"
+            and not _is_control_source(source)
+            and not _is_date_source(source)
+        ):
+            is_control = False
+        if not is_control:
+            value_sources.append(source)
+    controls = [source for source in columns if source not in value_sources]
+    if source_artifact in _HISTORICAL_CONTROL_SOURCES:
+        controls.extend(_HISTORICAL_CONTROL_SOURCES[source_artifact])
+    else:
+        controls.append(CLAIM_KEY)
+    values = tuple(dict.fromkeys(value_sources))
+    return values, tuple(source for source in dict.fromkeys(controls) if source not in values)
 
 
 class FeatureRegistry:
@@ -91,8 +192,8 @@ class FeatureRegistry:
         feature_type: str,
         source_artifacts: Iterable[str],
         source_columns: Iterable[str],
-        value_sources: Iterable[str] | None = None,
-        control_sources: Iterable[str] = (CLAIM_KEY, "claim__claim_date"),
+        value_sources: Iterable[str],
+        control_sources: Iterable[str],
         window: str | None = None,
         aggregation: str | None = None,
         null_behavior: str = "preserve_null",
@@ -112,7 +213,7 @@ class FeatureRegistry:
                 feature_type=feature_type,  # type: ignore[arg-type]
                 source_artifacts=tuple(source_artifacts),
                 source_columns=tuple(source_columns),
-                value_sources=tuple(value_sources or source_columns),
+                value_sources=tuple(value_sources),
                 control_sources=tuple(control_sources),
                 window=window,
                 aggregation=aggregation,
@@ -248,8 +349,14 @@ def _add_metric(
     notes: str = "",
     minimum_observations: int | None = None,
 ) -> None:
+    source_columns = tuple(source_columns)
     if aggregation in {"count", "nunique", "nunique_month"}:
         values = values.reindex(registry.claim_keys).fillna(0)
+    value_sources, control_sources = _infer_source_roles(
+        source_columns,
+        aggregation=aggregation,
+        source_artifact=source_artifact,
+    )
     registry.add_model(
         values,
         name,
@@ -258,6 +365,8 @@ def _add_metric(
         feature_type=feature_type,
         source_artifacts=(source_artifact,),
         source_columns=source_columns,
+        value_sources=value_sources,
+        control_sources=control_sources,
         window=window,
         aggregation=aggregation,
         formula=formula,
@@ -293,6 +402,7 @@ def _add_direct(registry: FeatureRegistry, snapshot: pd.DataFrame) -> None:
             source_artifacts=("claim_snapshot",),
             source_columns=(column,),
             value_sources=(column,),
+            control_sources=(CLAIM_KEY,),
             formula="direct Phase 5 safe claim-time value",
             notes="Phase 4-approved direct value; categorical values remain unencoded.",
             phase4_source_policy="ALLOW_BASELINE_POC",
@@ -1496,6 +1606,8 @@ def _add_presence(
             feature_type="boolean",
             source_artifacts=(f"{source_name}_history",),
             source_columns=("current_warranty_claim_key",),
+            value_sources=(),
+            control_sources=("current_warranty_claim_key",),
             formula="safe historical row count > 0",
             notes="False means no qualifying history; the claim remains in the output.",
         )

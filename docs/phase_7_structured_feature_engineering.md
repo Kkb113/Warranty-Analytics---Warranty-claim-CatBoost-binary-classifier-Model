@@ -30,3 +30,42 @@ The build verifies Phase 5 and Phase 6 validation, all frozen membership and
 TEST-lock hashes, source compatibility, as-of windows, target absence,
 deterministic ordering, feature lineage, numeric safety, and atomic publication.
 Generated Parquet, manifests, and reports are ignored by the public repository.
+
+## Hardened feature semantics
+
+The model matrix contains deterministic direct, lifecycle, usage, warranty,
+telemetry, maintenance, service, component, prior-claim, and history-coverage
+families. Historical windows are `3m`, `6m`, `12m`, `24m`, and `all`, with
+CORE/EXTENDED metadata preserved for every model candidate. Safe categorical
+values remain strings; Phase 7 performs no encoding, imputation, scaling,
+feature selection, or model training.
+
+Telemetry history uses strict completed-month semantics. The telemetry month
+containing the claim is excluded from both the observed-month numerator and the
+expected-month denominator. For a June claim, May is the latest eligible
+completed month regardless of whether the claim occurs on June 1, June 15, or
+June 30. The denominator also respects the requested lookback and the vehicle
+in-service month; invalid or empty ranges remain NULL, and coverage ratios are
+not clipped.
+
+Feature lineage distinguishes `value_sources` from `control_sources`. A value
+source contributes a measurement, category, or numeric date-derived quantity.
+Keys and dates used only for joins, filtering, counting, ordering, tie-breaking,
+or identity are controls. The authoritative Phase 4 policy and Phase 5 mart
+contract reject target-only, prohibited, confirmation-required, restricted, and
+raw-identifier values. `repair_history_index` produces no model features and
+`prior_failure__failure_description` remains deferred to Phase 8.
+
+Target independence is enforced by building without the target column; changing
+or removing target values cannot change the structured matrix. The exact
+corrected Phase 6 assignments and TEST lock are revalidated before every build.
+The current validated run is `artifacts/structured_features/20260810T_PHASE7_HARDENED/`.
+It consumes `artifacts/feature_mart/20260810T102230Z/` and
+`artifacts/splits/20260810T_PHASE6_CORRECTED/`; its expected warnings are constant
+TRAIN features, synthetic-POC status, date-level prediction reference, and
+real-data reapproval requirements.
+
+Phase 7 is hardened and safe to start Phase 8 after the contract, Phase 5 mart,
+corrected Phase 6 split, feature artifact, lineage, temporal, numeric, and
+determinism validations all pass. Phase 8 owns text feature development; Phase
+9 owns baseline model training.

@@ -7,7 +7,7 @@ unresolved business and availability questions are not inferred by code.
 
 ## Current status
 
-Current phase: **Phase 6 — Train / Validation / Test Split Design**.
+Current phase: **Phase 7 — Structured Feature Engineering**.
 
 Phase 0 model-contract, Phase 1 scaffolding, Phase 2 read-only data access /
 schema validation, and the Phase 3 live profiling run are complete. The live
@@ -67,6 +67,10 @@ credentials or database exports.
     warranty-model phase6-plan-check --mart-dir artifacts/feature_mart/<run_id>
     warranty-model phase6-build --mart-dir artifacts/feature_mart/<run_id>
     warranty-model phase6-validate --split-dir artifacts/splits/<run_id>
+    warranty-model phase7-contract-check
+    warranty-model phase7-plan-check --mart-dir artifacts/feature_mart/<run_id> --split-dir artifacts/splits/<run_id>
+    warranty-model phase7-build --mart-dir artifacts/feature_mart/<run_id> --split-dir artifacts/splits/<run_id>
+    warranty-model phase7-validate --feature-dir artifacts/structured_features/<run_id>
 
 Phase 3 commands share the read-only extractor but select distinct task groups:
 `data-profile` runs profiling and target/category/missingness diagnostics,
@@ -112,6 +116,11 @@ diagnostics, and claim-level evaluation cohorts. Generated split artifacts and
 reports remain ignored. The test target is reserved for first final evaluation
 in Phase 15.
 
+Phase 7 structured feature engineering is complete and hardened. The validated
+offline run provides 507 leakage-safe structured candidates, with no predictive
+model trained. Text feature development begins in Phase 8. Phase 7 consumes the
+exact Phase 5 mart and corrected Phase 6 split without changing membership.
+
 ## Repository structure
 
 - `contracts/`: version-controlled schema contract and provenance notes.
@@ -134,6 +143,8 @@ in Phase 15.
     warranty-model phase4-contract-check
     warranty-model phase5-plan-check
     warranty-model phase6-contract-check
+    warranty-model phase7-contract-check
+    warranty-model phase7-plan-check --mart-dir artifacts/feature_mart/<run_id> --split-dir artifacts/splits/<run_id>
 
 CI runs these checks without credentials or SQL Server access. Live tests are
 opt-in only when `WARRANTY_RUN_DB_TESTS=true` and valid local settings exist.
@@ -160,6 +171,7 @@ by exact object name only; their contents are never read.
 - [Phase 4 target and leakage policy](docs/phase_4_target_and_leakage_policy.md)
 - [Phase 5 claim feature mart](docs/phase_5_claim_feature_mart.md)
 - [Phase 6 train/validation/test split design](docs/phase_6_train_validation_test_split.md)
+- [Phase 7 structured feature engineering](docs/phase_7_structured_feature_engineering.md)
 - [Schema contract notes](contracts/README.md)
 - [Phase 1 scaffolding record](docs/phase_1_scaffolding.md)
 - [Contributing guide](CONTRIBUTING.md)

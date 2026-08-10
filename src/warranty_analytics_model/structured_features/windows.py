@@ -160,7 +160,11 @@ def expected_completed_months(
     if months is not None:
         requested = (claim - pd.DateOffset(months=months)).dt.to_period("M")
         start = start.where(start.notna() & (start > requested), requested)
-    end = (claim - pd.Timedelta(days=1)).dt.to_period("M")
+    # A claim month is incomplete at prediction time, even for a claim on the
+    # first or last day of that month.  Use the prior calendar month as the
+    # endpoint rather than ``claim_date - 1 day``, which remains in the claim
+    # month for every mid-month claim.
+    end = claim.dt.to_period("M") - 1
     values: list[int | None] = []
     for lower, upper in zip(start, end, strict=True):
         if pd.isna(lower) or pd.isna(upper) or lower > upper:
