@@ -9,6 +9,7 @@ description = "Configuration-driven scaffolding for truck-warranty high-cost cla
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "packaging>=23,<26",
     "pydantic-settings>=2.0,<3",
     "PyYAML>=6.0,<7",
     "python-dotenv>=1.0,<2",

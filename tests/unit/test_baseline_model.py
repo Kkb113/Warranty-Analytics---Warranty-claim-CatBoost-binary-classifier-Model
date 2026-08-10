@@ -47,6 +47,7 @@ from warranty_analytics_model.baseline_model.provenance import (
     prediction_content_sha256,
     runtime_provenance,
     runtime_provenance_errors,
+    validate_runtime_dependency_constraints,
 )
 from warranty_analytics_model.baseline_model.target import (
     KEY,
@@ -380,8 +381,9 @@ def test_experiment_runner_uses_train_target_and_validation_rows_only(
     assert all(len(item.probabilities) == 2 for item in results if item.probabilities is not None)
 
 
-def test_phase9_runner_atomically_writes_validation_only_bundle(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+@pytest.mark.parametrize("comparison_valid", [True, False])
+def test_phase9_runner_blocks_failed_comparison_and_accepts_success(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, comparison_valid: bool
 ) -> None:
     from warranty_analytics_model.baseline_model import runner
 
@@ -480,6 +482,33 @@ def test_phase9_runner_atomically_writes_validation_only_bundle(
         lambda *args, **kwargs: {"status": "PASS", "valid": True, "errors": [], "warnings": []},
     )
     monkeypatch.setattr(runner, "git_commit_sha", lambda root: "commit")
+    monkeypatch.setattr(
+        runner,
+        "validate_runtime_dependency_constraints",
+        lambda *args: {
+            "status": "PASS",
+            "valid": True,
+            "errors": [],
+            "checked_requirements": {},
+        },
+    )
+    comparison_source = tmp_path / "models" / "20260810T_PHASE9"
+    comparison_source.mkdir(parents=True)
+    comparison = {
+        "valid": comparison_valid,
+        "status": "PASS" if comparison_valid else "BLOCKED",
+        "errors": [] if comparison_valid else ["validation prediction hash changed"],
+    }
+    monkeypatch.setattr(runner, "compare_phase9_runs", lambda *args: comparison)
+    if not comparison_valid:
+        with pytest.raises(
+            BaselineModelError,
+            match="Phase 9 before/after semantic comparison failed: "
+            "validation prediction hash changed",
+        ):
+            runner.build_phase9(Path("p5"), Path("p6"), Path("p7"), Path("p8"), run_id="fictional")
+        assert not (tmp_path / "models" / "fictional").exists()
+        return
     result = runner.build_phase9(Path("p5"), Path("p6"), Path("p7"), Path("p8"), run_id="fictional")
     run_dir = Path(result["run_directory"])
     assert result["champion_experiment_id"] == "E1"
@@ -488,6 +517,7 @@ def test_phase9_runner_atomically_writes_validation_only_bundle(
     assert list(predictions.columns) == [KEY, "experiment_id", "probability"]
     assert set(predictions[KEY]) == {3, 4}
     assert (tmp_path / "reports" / "fictional" / "baseline_model_report.md").is_file()
+    assert result["comparison"] == comparison
 
 
 def test_phase9_validator_blocks_missing_artifacts(tmp_path: Path) -> None:
@@ -1133,6 +1163,50 @@ def test_runtime_provenance_is_complete_and_secret_free() -> None:
     }
     assert runtime_provenance_errors(runtime) == []
     assert runtime_provenance_errors({"python_version": "3.14", "password": "secret"})
+
+
+def _fictional_compliant_runtime() -> dict[str, str]:
+    return {
+        "python_version": "3.12.8",
+        "python_implementation": "CPython",
+        "catboost_version": "1.2.10",
+        "scikit_learn_version": "1.7.2",
+        "pandas_version": "2.3.3",
+        "numpy_version": "2.2.6",
+        "pyarrow_version": "19.0.1",
+        "platform": "fictional",
+        "machine": "AMD64",
+        "os": "Windows",
+    }
+
+
+def test_runtime_dependency_constraints_accept_declared_phase9_environment() -> None:
+    result = validate_runtime_dependency_constraints(Path.cwd(), _fictional_compliant_runtime())
+    assert result["valid"] is True, result
+    checked = result["checked_requirements"]
+    assert set(checked) == {"python", "numpy", "pandas", "pyarrow", "catboost", "scikit-learn"}
+    assert all(item["compatible"] for item in checked.values())
+
+
+@pytest.mark.parametrize(
+    ("runtime_key", "version", "dependency"),
+    [
+        ("pandas_version", "3.0.5", "pandas"),
+        ("pyarrow_version", "25.0.1", "pyarrow"),
+        ("catboost_version", "2.0", "catboost"),
+        ("scikit_learn_version", "2.0", "scikit-learn"),
+        ("numpy_version", "3.0", "numpy"),
+    ],
+)
+def test_runtime_dependency_constraints_block_incompatible_phase9_environment(
+    runtime_key: str, version: str, dependency: str
+) -> None:
+    runtime = _fictional_compliant_runtime()
+    runtime[runtime_key] = version
+    result = validate_runtime_dependency_constraints(Path.cwd(), runtime)
+    assert result["valid"] is False
+    assert result["status"] == "BLOCKED"
+    assert any(dependency in error for error in result["errors"])
 
 
 def test_feature_hash_and_champion_mismatch_are_blocking(tmp_path: Path) -> None:

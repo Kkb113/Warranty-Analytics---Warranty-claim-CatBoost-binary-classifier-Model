@@ -47,15 +47,25 @@ adds fail-closed artifact acceptance controls:
   weighting, no evaluation-set/early-stopping decisions, and reload probability
   equality at `atol=1e-12`, `rtol=0`;
 - runtime/library provenance is recorded without usernames, home paths,
-  secrets, or environment dumps; and
+  secrets, or environment dumps;
+- runtime compatibility with the Python, NumPy, pandas, PyArrow, CatBoost, and
+  scikit-learn constraints declared in `pyproject.toml` is blocking; `packaging`
+  is an explicit core dependency because validation parses those requirements;
+- comparison with the immutable original Phase 9 semantic baseline is performed
+  before atomic publication, and any population, target, feature, prediction,
+  metric, experiment-status, or champion drift blocks acceptance; and
 - the TEST seal requires zero labels, predictions, and metrics, with no TEST
   artifact files and Phase 15 as the first allowed TEST-target phase.
 
 The original `20260810T_PHASE9` run is immutable and validates as
-`LEGACY_VALID`. A corrective run should use a new immutable ID, for example
-`20260811T_PHASE9_HARDENED`; its report includes the before/after comparison.
-If the locked inputs and runtime are reproduced, the expected champion remains
-E3. Phase 10 may begin only after the hardened run and comparison pass.
+`LEGACY_VALID`. Final run `20260811T_PHASE9_FINAL` was reproduced in a fresh
+project `.venv` with Python 3.12.13, NumPy 2.4.6, pandas 2.3.3, PyArrow 19.0.1,
+CatBoost 1.2.10, and scikit-learn 1.9.0. The environment satisfies the declared
+requirements and `pip check` reports no broken requirements. Its blocking
+comparison against the original run passes with zero metric delta, identical
+target/feature/prediction hashes, and E3 as champion. Different `.cbm` hashes do
+not block because binary hash equality is not a semantic requirement. TEST
+remains sealed until Phase 15.
 
 ## Commands
 

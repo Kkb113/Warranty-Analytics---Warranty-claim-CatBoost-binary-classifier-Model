@@ -12,7 +12,7 @@ import pandas as pd
 from warranty_analytics_model.baseline_model.models import DevelopmentTargets, FeatureSetSpec
 from warranty_analytics_model.baseline_model.provenance import (
     prediction_content_sha256,
-    runtime_provenance,
+    validate_runtime_dependency_constraints,
 )
 from warranty_analytics_model.baseline_model.validation import validate_model_directory
 
@@ -188,6 +188,20 @@ def test_complete_hardened_bundle_is_accepted(monkeypatch, tmp_path: Path) -> No
         "target_access_audit.json",
         "model_manifest.json",
     )
+    runtime_versions = {
+        "python_version": "3.12.8",
+        "python_implementation": "CPython",
+        "catboost_version": "1.2.10",
+        "scikit_learn_version": "1.7.2",
+        "pandas_version": "2.3.3",
+        "numpy_version": "2.2.6",
+        "pyarrow_version": "19.0.1",
+        "platform": "fictional",
+        "machine": "AMD64",
+        "os": "Windows",
+    }
+    dependency_compatibility = validate_runtime_dependency_constraints(Path.cwd(), runtime_versions)
+    assert dependency_compatibility["valid"] is True
     _write_json(
         run_dir / "experiment_manifest.json",
         {
@@ -208,7 +222,8 @@ def test_complete_hardened_bundle_is_accepted(monkeypatch, tmp_path: Path) -> No
             },
             "target_hashes": {"train": "train-digest", "validation": "validation-digest"},
             "test_seal": targets.audit,
-            "runtime_versions": runtime_provenance(),
+            "runtime_versions": runtime_versions,
+            "dependency_compatibility": dependency_compatibility,
             "champion_experiment_id": "E1",
             "report_directory": str(report_dir),
             "prediction_artifact": {

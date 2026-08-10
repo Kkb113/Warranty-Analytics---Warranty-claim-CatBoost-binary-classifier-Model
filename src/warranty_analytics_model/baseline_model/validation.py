@@ -29,6 +29,7 @@ from .provenance import (
     model_policy_errors,
     prediction_content_sha256,
     runtime_provenance_errors,
+    validate_runtime_dependency_constraints,
 )
 from .target import KEY, TARGET, load_development_targets
 
@@ -745,9 +746,17 @@ def validate_model_directory(
         model_manifest = _read_json(directory / "model_manifest.json")
         hardened = experiment_manifest.get("hardening_version") == HARDENING_VERSION
         if hardened:
-            errors.extend(
-                runtime_provenance_errors(experiment_manifest.get("runtime_versions", {}))
+            runtime_versions = experiment_manifest.get("runtime_versions", {})
+            errors.extend(runtime_provenance_errors(runtime_versions))
+            dependency_compatibility = validate_runtime_dependency_constraints(
+                Path(project_root) if project_root is not None else Path.cwd(), runtime_versions
             )
+            errors.extend(dependency_compatibility["errors"])
+            if experiment_manifest.get("dependency_compatibility") != dependency_compatibility:
+                errors.append(
+                    "Persisted Phase 9 dependency compatibility metadata differs from "
+                    "the declared project requirements."
+                )
             if experiment_manifest.get("hardened_status") != "HARDENED_PASS":
                 errors.append("Hardened run does not declare HARDENED_PASS.")
         else:

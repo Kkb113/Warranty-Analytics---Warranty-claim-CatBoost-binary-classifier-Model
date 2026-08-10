@@ -24,6 +24,7 @@ from .provenance import (
     HARDENING_VERSION,
     prediction_content_sha256,
     runtime_provenance,
+    validate_runtime_dependency_constraints,
 )
 from .reporting import write_phase9_reports
 from .target import KEY, load_development_targets, target_summary
@@ -82,6 +83,13 @@ def build_phase9(
 
     root = discover_repository_root(project_root)
     settings = load_baseline_settings(root)
+    runtime_versions = runtime_provenance()
+    dependency_compatibility = validate_runtime_dependency_constraints(root, runtime_versions)
+    if not dependency_compatibility["valid"]:
+        raise BaselineModelError(
+            "Phase 9 runtime dependency validation failed: "
+            + "; ".join(dependency_compatibility["errors"])
+        )
     plan = phase9_plan_check(mart_dir, split_dir, structured_dir, text_dir, project_root=root)
     if not plan["valid"] or plan["inputs"] is None:
         raise BaselineModelError("Phase 9 plan blocks training: " + "; ".join(plan["errors"]))
@@ -102,6 +110,7 @@ def build_phase9(
     output_root.mkdir(parents=True, exist_ok=True)
     temporary = output_root / f".phase9_{selected_run_id}_{uuid.uuid4().hex}.tmp"
     temporary.mkdir(parents=True)
+    comparison = None
     try:
         results = run_experiments(
             development, targets, feature_sets, settings, temporary / "models"
@@ -234,7 +243,8 @@ def build_phase9(
             },
             "test_seal": targets.audit,
             "settings": settings_payload(settings),
-            "runtime_versions": runtime_provenance(),
+            "runtime_versions": runtime_versions,
+            "dependency_compatibility": dependency_compatibility,
             "champion_experiment_id": champion.experiment_id,
             "report_directory": str(report_root / selected_run_id),
             "experiment_inventory": {
@@ -271,17 +281,19 @@ def build_phase9(
                 "Phase 9 artifact validation blocks publication: " + "; ".join(validation["errors"])
             )
         write_json(temporary / "validation.json", validation)
+        comparison_source = output_root / "20260810T_PHASE9"
+        if comparison_source.is_dir() and comparison_source.resolve() != final_dir.resolve():
+            comparison = compare_phase9_runs(comparison_source, temporary)
+            if not comparison["valid"]:
+                raise BaselineModelError(
+                    "Phase 9 before/after semantic comparison failed: "
+                    + "; ".join(comparison["errors"])
+                )
         temporary.replace(final_dir)
     except Exception:
         if temporary.exists():
             shutil.rmtree(temporary)
         raise
-    comparison = None
-    comparison_source = output_root / "20260810T_PHASE9"
-    if comparison_source.is_dir() and comparison_source.resolve() != final_dir.resolve():
-        comparison = compare_phase9_runs(comparison_source, final_dir)
-        if not comparison["valid"]:
-            warnings.extend(f"BEFORE_AFTER_COMPARISON: {error}" for error in comparison["errors"])
     summary = {
         "status": "PASS WITH WARNINGS" if warnings else "PASS",
         "run_id": selected_run_id,
@@ -292,7 +304,8 @@ def build_phase9(
         "feature_sets": feature_sets_payload(feature_sets),
         "warnings": warnings,
         "hardening_status": validation.get("hardening_status"),
-        "runtime_versions": runtime_provenance(),
+        "runtime_versions": runtime_versions,
+        "dependency_compatibility": dependency_compatibility,
         "comparison": comparison,
         "run_directory": str(final_dir),
         "validation": validation,

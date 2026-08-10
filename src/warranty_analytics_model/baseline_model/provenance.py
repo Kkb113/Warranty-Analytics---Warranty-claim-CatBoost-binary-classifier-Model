@@ -5,11 +5,17 @@ from __future__ import annotations
 import hashlib
 import json
 import platform
+import tomllib
 from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
+from packaging.requirements import InvalidRequirement, Requirement
+from packaging.specifiers import InvalidSpecifier, SpecifierSet
+from packaging.utils import canonicalize_name
+from packaging.version import InvalidVersion, Version
 
 from .models import BaselineModelError
 
@@ -40,6 +46,14 @@ MODEL_CORE_PARAMETERS: dict[str, Any] = {
     "use_best_model": False,
 }
 DISABLED_WEIGHT_VALUES = (None, False, 0, 1, "", "none", "None", "false", "disabled")
+PHASE9_RUNTIME_EXTRAS = ("profiling", "mart", "modeling")
+PHASE9_RUNTIME_DISTRIBUTIONS = {
+    "numpy": "numpy_version",
+    "pandas": "pandas_version",
+    "pyarrow": "pyarrow_version",
+    "catboost": "catboost_version",
+    "scikit-learn": "scikit_learn_version",
+}
 
 
 def _distribution_version(distribution: str) -> str:
@@ -63,6 +77,86 @@ def runtime_provenance() -> dict[str, str]:
         "platform": platform.platform(),
         "machine": platform.machine(),
         "os": platform.system(),
+    }
+
+
+def _phase9_declared_requirements(project_root: Path) -> tuple[str, dict[str, str]]:
+    pyproject_path = project_root / "pyproject.toml"
+    with pyproject_path.open("rb") as handle:
+        project = tomllib.load(handle).get("project", {})
+    python_requirement = str(project.get("requires-python", "")).strip()
+    optional = project.get("optional-dependencies", {})
+    raw_requirements = list(project.get("dependencies", []))
+    for extra in PHASE9_RUNTIME_EXTRAS:
+        raw_requirements.extend(optional.get(extra, []))
+
+    specifier_parts: dict[str, list[str]] = {}
+    for raw in raw_requirements:
+        requirement = Requirement(str(raw))
+        name = canonicalize_name(requirement.name)
+        if name not in PHASE9_RUNTIME_DISTRIBUTIONS:
+            continue
+        parts = [part.strip() for part in str(requirement.specifier).split(",") if part.strip()]
+        bucket = specifier_parts.setdefault(name, [])
+        bucket.extend(part for part in parts if part not in bucket)
+    return python_requirement, {
+        name: ",".join(specifier_parts.get(name, [])) for name in PHASE9_RUNTIME_DISTRIBUTIONS
+    }
+
+
+def validate_runtime_dependency_constraints(
+    project_root: Path,
+    runtime: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Validate Phase 9 runtime versions against authoritative project metadata."""
+
+    observed = runtime_provenance() if runtime is None else runtime
+    errors: list[str] = []
+    checked: dict[str, dict[str, Any]] = {}
+    try:
+        python_requirement, package_requirements = _phase9_declared_requirements(project_root)
+    except (OSError, tomllib.TOMLDecodeError, InvalidRequirement) as exc:
+        return {
+            "status": "BLOCKED",
+            "valid": False,
+            "errors": [f"Phase 9 dependency requirements could not be loaded: {exc}"],
+            "checked_requirements": {},
+        }
+
+    requirements = {"python": python_requirement, **package_requirements}
+    version_keys = {"python": "python_version", **PHASE9_RUNTIME_DISTRIBUTIONS}
+    for name, requirement_text in requirements.items():
+        actual = str(observed.get(version_keys[name], "")).strip()
+        compatible = False
+        if not requirement_text:
+            errors.append(f"Phase 9 has no declared dependency constraint for {name}.")
+        elif not actual or actual == "unavailable":
+            errors.append(f"Phase 9 runtime dependency is unavailable: {name}.")
+        else:
+            try:
+                compatible = SpecifierSet(requirement_text).contains(
+                    Version(actual), prereleases=True
+                )
+            except (InvalidSpecifier, InvalidVersion):
+                errors.append(f"Phase 9 runtime dependency version is invalid: {name}={actual!r}.")
+            if not compatible and not any(
+                error.startswith(f"Phase 9 runtime dependency version is invalid: {name}=")
+                for error in errors
+            ):
+                errors.append(
+                    f"Phase 9 runtime dependency {name} {actual} does not satisfy "
+                    f"{requirement_text}."
+                )
+        checked[name] = {
+            "declared_requirement": requirement_text,
+            "resolved_version": actual,
+            "compatible": compatible,
+        }
+    return {
+        "status": "PASS" if not errors else "BLOCKED",
+        "valid": not errors,
+        "errors": list(dict.fromkeys(errors)),
+        "checked_requirements": checked,
     }
 
 
