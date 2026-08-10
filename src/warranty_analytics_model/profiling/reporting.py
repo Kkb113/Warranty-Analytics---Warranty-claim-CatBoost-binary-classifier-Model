@@ -62,6 +62,10 @@ def _status_summary(result: dict[str, Any]) -> list[str]:
         and isinstance(duplicate.get("duplicate_audit"), dict)
         and duplicate["duplicate_audit"].get("duplicates_found")
     )
+    installation = result.get("installation_matching", {})
+    installation_summary = installation if isinstance(installation, dict) else {}
+    context = result.get("claim_context_diagnostics", {})
+    context_summary = context if isinstance(context, dict) else {}
     return [
         "# Phase 3 summary",
         "",
@@ -74,6 +78,10 @@ def _status_summary(result: dict[str, Any]) -> list[str]:
         f"- Apparent total-cost threshold: **{'suspected' if deterministic else 'not established'}**",
         f"- Suspected post-outcome leakage fields audited: **{leakage_fields}**",
         f"- Duplicate/scenario contamination detected: **{'yes' if duplicate_flag else 'no'}**",
+        f"- As-of installation matches: **{installation_summary.get('matched_as_of_installation', 0)}**",
+        f"- Ambiguous installation matches: **{installation_summary.get('ambiguous_as_of_installation', 0)}**",
+        f"- Claims with component context: **{context_summary.get('claims_with_component_context', 0)}**",
+        f"- Claims with supplier context: **{context_summary.get('claims_with_supplier_context', 0)}**",
         f"- Data-quality findings: **{counts['ERROR']} errors, {counts['WARNING']} warnings, {counts['INFO']} info**",
         "",
         "The target and outcome fields are diagnostic evidence only. They must not be used as prediction-time features.",
@@ -142,7 +150,12 @@ def _flag_answer(result: dict[str, Any], flag: str) -> str:
 
 
 def _temporal_answer(result: dict[str, Any]) -> str:
-    rows = result.get("temporal_violations", [])
+    quality = result.get("data_quality", {})
+    rows = (
+        quality.get("temporal_violations", [])
+        if isinstance(quality, dict)
+        else result.get("temporal_violations", [])
+    )
     return (
         "Review temporal findings."
         if any(isinstance(row, dict) and row.get("violation_count", 0) for row in rows)
@@ -309,6 +322,38 @@ def markdown_summary(result: dict[str, Any]) -> str:
 
     lines = _status_summary(result)
     lines.extend(_synthetic_rows(result))
+    installation = result.get("installation_matching", {})
+    if isinstance(installation, dict):
+        lines.extend(
+            [
+                "",
+                "## Component-installation as-of diagnostic",
+                "",
+                f"- As-of rule: **{installation.get('as_of_rule', 'not run')}**",
+                f"- Claims with causal component: **{installation.get('claims_with_causal_component', 0)}**",
+                f"- Matched as-of installations: **{installation.get('matched_as_of_installation', 0)}**",
+                f"- Unmatched as-of installations: **{installation.get('unmatched_as_of_installation', 0)}**",
+                f"- Ambiguous as-of installations: **{installation.get('ambiguous_as_of_installation', 0)}**",
+                f"- Future installation rows excluded: **{installation.get('future_installations_excluded', 0)}**",
+                f"- Claims with multiple historical installations: **{installation.get('claims_with_multiple_historical_installations', 0)}**",
+                "",
+                "Installation-derived lot, batch, and supplier groups are diagnostic only. Ambiguous latest-date matches are excluded from purity analysis unless their audited grouping values are identical.",
+            ]
+        )
+    context = result.get("claim_context_diagnostics", {})
+    if isinstance(context, dict) and context.get("executed"):
+        lines.extend(
+            [
+                "",
+                "## Claim component/supplier context",
+                "",
+                f"- Claim diagnostic rows: **{context.get('claim_rows', 0)}**",
+                f"- Joined context rows: **{context.get('context_rows', 0)}**",
+                f"- Component context attached: **{context.get('claims_with_component_context', 0)}**",
+                f"- Supplier context attached through component: **{context.get('claims_with_supplier_context', 0)}**",
+                f"- Row multiplication detected: **{'yes' if context.get('row_multiplication_detected') else 'no'}**",
+            ]
+        )
     lines.extend(
         [
             "",

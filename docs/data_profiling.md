@@ -93,6 +93,45 @@ presence of expected post-outcome leakage in a synthetic audit alone does not
 automatically block Phase 4; the legitimate prediction-time snapshot must be
 defined and the fields excluded.
 
+## Corrective hardening baseline
+
+The corrective hardening pass superseded the earlier live diagnostic because the
+original component-installation join used the claim key name on both sides and
+the telemetry audit incorrectly treated `engine_hours_month` as cumulative. The
+corrected engine now uses explicit left/right dimension keys, including
+`causal_component_key` to `dim_component.component_key`, and validates every
+dimension join as many-to-one. The component-to-supplier chain is retained in
+claim diagnostic context without multiplying claim rows.
+
+Installation group-purity diagnostics use the deterministic as-of rule
+`failure_date` when available, otherwise `claim_date`, and require
+`installed_date <= diagnostic_as_of_date`. The latest eligible installation is
+selected. Same-date conflicting rows are marked ambiguous and excluded from
+purity groups; identical grouping values may be collapsed deterministically.
+The output reports matched, unmatched, ambiguous, future-excluded, and
+multiple-historical-installation counts without exposing row-level identifiers.
+
+`total_odometer_miles` remains cumulative and is checked for decreases.
+`engine_hours_month` is monthly usage, so month-to-month decreases are valid;
+negative engine or idle hours remain invalid, and `idle_hours_month` greater
+than `engine_hours_month` is a conservative logical warning.
+
+The four CLI commands select shared task groups: `data-profile` runs table,
+column, target, category, and missingness profiling; `synthetic-audit` runs
+target-generation, leakage, identifier, duplicate, text, and group-purity
+audits; `data-quality-check` runs referential, temporal, telemetry,
+maintenance, service/repair, and component/supplier checks; and `phase3-run`
+runs all groups. CI installs the `profiling` optional dependency group while
+remaining independent of SQL Server credentials.
+
+The corrected live baseline completed with 16/16 approved tables, 392,352
+rows, 8,500 claims, 0 errors, and 8 warnings. It attached component and
+supplier context to all 8,500 claim rows without multiplication, matched 8,499
+as-of installations, marked 11 ambiguous matches, found 230 claims with
+multiple historical installations, excluded 0 future installation rows, and
+reported 456 supported target-pure groups. The corrected aggregate reports are
+under `reports/data_profiling/20260810T041849Z/`.
+
 ## Interpreting Phase 4 recommendations
 
 Before feature design, the data owner and business owner still need to confirm

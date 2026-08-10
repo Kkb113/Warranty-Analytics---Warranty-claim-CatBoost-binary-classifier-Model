@@ -16,7 +16,7 @@ production feature mart, trains a model, or serves inference.
   diff, and reporting modules.
 - profiling/: Phase 3 explicit-column extraction, table/column/target profiles,
   data-quality checks, temporal/telemetry audits, synthetic-data audits,
-  findings, and report generation.
+  as-of installation matching, findings, and report generation.
 - ingestion/: later boundary for approved production source extraction; the
   Phase 3 profiling extractor is diagnostic and contract-scoped, not an
   ingestion or feature pipeline.
@@ -32,6 +32,37 @@ production feature mart, trains a model, or serves inference.
 - reproducibility.py: deterministic Python random seeding.
 - cli.py: infrastructure and schema commands plus explicit live Phase 3
   profiling/audit commands.
+
+## Corrected Phase 3 diagnostic flow
+
+Claim diagnostic context remains at one row per warranty claim. Dimension joins
+use explicit left/right keys and many-to-one validation. In particular:
+
+    claim.causal_component_key
+        -> dim_component.component_key
+        -> component attributes and supplier_key
+        -> dim_supplier.supplier_key
+        -> supplier attributes
+
+Component-installation purity diagnostics use a separate one-to-zero/one
+as-of match on `truck_key` plus component key. `failure_date` is preferred and
+`claim_date` is the fallback; only `installed_date` values on or before that
+diagnostic date are eligible, and the latest eligible installation is selected.
+Same-date conflicting rows are counted as ambiguous and excluded from purity
+groups unless their audited grouping values are identical. The matching result
+is aggregate-reported and does not expose claim identifiers.
+
+Telemetry treats `total_odometer_miles` as cumulative, while
+`engine_hours_month` and `idle_hours_month` are monthly quantities. Monthly
+engine-hour decreases are not sequence defects. Negative measurements remain
+invalid, and idle hours greater than engine hours are reported as a conservative
+logical diagnostic.
+
+The Phase 3 CLI shares one extraction and profiling engine with selectable task
+groups. `data-profile` runs profiling, target distribution, category, and
+missingness work; `synthetic-audit` runs synthetic and leakage diagnostics;
+`data-quality-check` runs relational, temporal, telemetry, maintenance,
+service/repair, and component/supplier checks; `phase3-run` runs all groups.
 
 The package uses the src layout so imports resolve from the installed package
 rather than from an accidental repository-root module.

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -34,6 +34,22 @@ from .temporal_quality import (
 
 TARGET_TABLE = "dbo.fact_warranty_claim"
 APPROVED_TABLE_COUNT = 16
+DATA_PROFILE_TASK = "data_profile"
+SYNTHETIC_AUDIT_TASK = "synthetic_audit"
+DATA_QUALITY_TASK = "data_quality"
+ALL_PHASE3_TASKS = frozenset({DATA_PROFILE_TASK, SYNTHETIC_AUDIT_TASK, DATA_QUALITY_TASK})
+
+
+def _normalize_task_groups(task_groups: Iterable[str] | None) -> frozenset[str]:
+    """Validate and normalize the selectable Phase 3 task groups."""
+
+    requested = set(task_groups) if task_groups is not None else set(ALL_PHASE3_TASKS)
+    unknown = requested - ALL_PHASE3_TASKS
+    if unknown:
+        raise ValueError(f"Unsupported Phase 3 task group(s): {', '.join(sorted(unknown))}")
+    if not requested:
+        raise ValueError("At least one Phase 3 task group must be selected.")
+    return frozenset(requested)
 
 
 def _claim_context(frames: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
@@ -46,41 +62,72 @@ def _claim_context(frames: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
     def merge_dimension(
         current: pd.DataFrame,
         table_name: str,
-        key: str,
+        left_key: str,
+        right_key: str,
         fields: list[str],
         *,
         rename_prefix: str = "",
+        required: bool = False,
     ) -> pd.DataFrame:
         dimension = frames.get(table_name)
-        if dimension is None or key not in current or key not in dimension:
+        if dimension is None:
             return current
-        selected = [key] + [field for field in fields if field in dimension.columns]
+        if left_key not in current:
+            if required:
+                raise ValueError(
+                    f"Required claim-context join key {left_key!r} is missing from {TARGET_TABLE}."
+                )
+            return current
+        if right_key not in dimension:
+            raise ValueError(
+                f"Dimension {table_name} is missing required join key {right_key!r}; "
+                f"cannot join {left_key!r} to it."
+            )
+        selected = [right_key] + [field for field in fields if field in dimension.columns]
         selected = list(dict.fromkeys(selected))
-        right = dimension[selected].drop_duplicates(key)
+        right = dimension[selected].copy()
+        duplicate_key_rows = int(right[right_key].duplicated(keep=False).sum())
+        if duplicate_key_rows:
+            raise ValueError(
+                f"Dimension {table_name} violates the many-to-one join assumption on "
+                f"{right_key!r}: {duplicate_key_rows} duplicate rows."
+            )
         if rename_prefix:
             right = right.rename(
-                columns={field: f"{rename_prefix}{field}" for field in selected if field != key}
+                columns={
+                    field: f"{rename_prefix}{field}" for field in selected if field != right_key
+                }
             )
         else:
             right = right.rename(
                 columns={
                     field: field
                     for field in selected
-                    if field not in current.columns or field == key
+                    if field not in current.columns or field == right_key
                 }
             )
             right = right[
                 [
                     column
                     for column in right.columns
-                    if column == key or column not in current.columns
+                    if column == right_key or column not in current.columns
                 ]
             ]
-        return current.merge(right, on=key, how="left", validate="many_to_one")
+        merged = current.merge(
+            right,
+            left_on=left_key,
+            right_on=right_key,
+            how="left",
+            validate="many_to_one",
+        )
+        if left_key != right_key and right_key in merged.columns:
+            merged = merged.drop(columns=[right_key])
+        return merged
 
     claims = merge_dimension(
         claims,
         "dbo.dim_truck",
+        "truck_key",
         "truck_key",
         [
             "truck_model_key",
@@ -97,11 +144,13 @@ def _claim_context(frames: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
         claims,
         "dbo.dim_truck_model",
         "truck_model_key",
+        "truck_model_key",
         ["model_name", "model_year", "brand", "segment", "application_type"],
     )
     claims = merge_dimension(
         claims,
         "dbo.dim_service_center",
+        "service_center_key",
         "service_center_key",
         ["location_key", "dealer_group", "certified_level", "service_capacity"],
     )
@@ -109,6 +158,7 @@ def _claim_context(frames: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
         claims,
         "dbo.dim_component",
         "causal_component_key",
+        "component_key",
         [
             "component_id",
             "component_system",
@@ -116,10 +166,12 @@ def _claim_context(frames: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
             "supplier_key",
             "is_safety_critical",
         ],
+        required=True,
     )
     claims = merge_dimension(
         claims,
         "dbo.dim_failure_code",
+        "failure_code_key",
         "failure_code_key",
         [
             "failure_code",
@@ -133,11 +185,13 @@ def _claim_context(frames: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
         claims,
         "dbo.dim_supplier",
         "supplier_key",
+        "supplier_key",
         ["supplier_id", "supplier_region", "supplier_tier", "quality_rating"],
     )
     claims = merge_dimension(
         claims,
         "dbo.dim_customer",
+        "customer_key",
         "customer_key",
         [
             "customer_type",
@@ -152,6 +206,7 @@ def _claim_context(frames: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
     claims = merge_dimension(
         claims,
         "dbo.dim_location",
+        "location_key",
         "location_key",
         ["region", "climate_zone", "terrain_type"],
     )
@@ -178,6 +233,53 @@ def _category_columns(frame: pd.DataFrame) -> list[str]:
         "failure_category",
     )
     return [column for column in candidates if column in frame]
+
+
+def _claim_context_diagnostics(
+    claims: pd.DataFrame, context: pd.DataFrame, *, executed: bool
+) -> dict[str, object]:
+    """Summarize diagnostic join coverage without exposing claim-level values."""
+
+    claim_rows = int(len(claims))
+    context_rows = int(len(context))
+    if not executed:
+        return {
+            "executed": False,
+            "claim_rows": claim_rows,
+            "context_rows": 0,
+            "row_multiplication_detected": False,
+            "claims_with_causal_component": 0,
+            "claims_with_component_context": 0,
+            "claims_missing_component_context": 0,
+            "claims_with_supplier_context": 0,
+            "claims_missing_supplier_context": 0,
+        }
+    causal_present = (
+        context["causal_component_key"].notna()
+        if "causal_component_key" in context
+        else pd.Series(False, index=context.index)
+    )
+    component_joined = (
+        context["component_system"].notna()
+        if "component_system" in context
+        else pd.Series(False, index=context.index)
+    )
+    supplier_joined = (
+        context["supplier_region"].notna()
+        if "supplier_region" in context
+        else pd.Series(False, index=context.index)
+    )
+    return {
+        "executed": True,
+        "claim_rows": claim_rows,
+        "context_rows": context_rows,
+        "row_multiplication_detected": context_rows != claim_rows,
+        "claims_with_causal_component": int(causal_present.sum()),
+        "claims_with_component_context": int((causal_present & component_joined).sum()),
+        "claims_missing_component_context": int((causal_present & ~component_joined).sum()),
+        "claims_with_supplier_context": int((component_joined & supplier_joined).sum()),
+        "claims_missing_supplier_context": int((component_joined & ~supplier_joined).sum()),
+    }
 
 
 def _finding_from_table_profile(profile: dict[str, Any]) -> list[Finding]:
@@ -362,9 +464,19 @@ def _quality_findings(
             )
     for issue in telemetry.get("issues", []) if isinstance(telemetry.get("issues"), list) else []:
         if isinstance(issue, dict):
+            issue_name = str(issue.get("issue"))
+            issue_code = (
+                "TELEMETRY_LOGICAL_ISSUE"
+                if issue_name == "idle_hours_exceed_engine_hours"
+                else (
+                    "TELEMETRY_MEASUREMENT_ISSUE"
+                    if issue_name == "negative_measurement"
+                    else "TELEMETRY_SEQUENCE_ISSUE"
+                )
+            )
             findings.append(
                 make_finding(
-                    "TELEMETRY_SEQUENCE_ISSUE",
+                    issue_code,
                     "ERROR" if issue.get("severity") == "ERROR" else "WARNING",
                     "telemetry",
                     "Telemetry sequence diagnostics found a logical or coverage issue.",
@@ -531,56 +643,111 @@ def profile_dataframes(
     write_reports: bool = False,
     output_dir: Path | None = None,
     report_formats: tuple[str, ...] = ("json", "markdown"),
+    task_groups: Iterable[str] | None = None,
 ) -> dict[str, Any]:
-    """Run Phase 3 against in-memory DataFrames, suitable for fixtures and live extracts."""
+    """Run selected Phase 3 diagnostics against in-memory DataFrames."""
 
     config = profiling_settings or ProfilingSettings()
+    selected_tasks = _normalize_task_groups(task_groups)
+    run_data_profile = DATA_PROFILE_TASK in selected_tasks
+    run_synthetic_task = SYNTHETIC_AUDIT_TASK in selected_tasks
+    run_data_quality = DATA_QUALITY_TASK in selected_tasks
     normalized_frames = {str(name): frame.copy() for name, frame in frames.items()}
-    table_profiles = profile_tables(
-        normalized_frames,
-        contract=contract,
-        top_categories=config.top_categories,
-        percentiles=tuple(config.percentiles),
-        rare_category_thresholds=tuple(config.rare_category_thresholds),
+    claim_rows = normalized_frames.get(TARGET_TABLE, pd.DataFrame())
+    table_profiles = (
+        profile_tables(
+            normalized_frames,
+            contract=contract,
+            top_categories=config.top_categories,
+            percentiles=tuple(config.percentiles),
+            rare_category_thresholds=tuple(config.rare_category_thresholds),
+        )
+        if run_data_profile
+        else []
     )
-    context = _claim_context(normalized_frames)
-    target = profile_target(context)
-    fk_rows = foreign_key_orphans(normalized_frames, contract) if contract is not None else []
-    temporal_rows = temporal_rules(dict(normalized_frames)) if config.enable_temporal_audit else []
-    telemetry = telemetry_quality(
-        normalized_frames.get("dbo.fact_telemetry_monthly", pd.DataFrame())
+    context = (
+        _claim_context(normalized_frames)
+        if (run_data_profile or run_synthetic_task)
+        else pd.DataFrame()
     )
-    maintenance = maintenance_quality(
-        normalized_frames.get("dbo.fact_maintenance_event", pd.DataFrame())
-    )
-    service_repair = service_repair_quality(
-        normalized_frames.get("dbo.fact_service_event"),
-        normalized_frames.get("dbo.fact_repair_line"),
-    )
-    component_supplier = component_supplier_quality(
-        normalized_frames.get("dbo.fact_component_installation"),
-        normalized_frames.get("dbo.dim_component"),
-        normalized_frames.get("dbo.dim_supplier"),
-    )
-    missingness = missingness_summary(normalized_frames)
-    missingness_target = missingness_by_target(context, columns=context.columns)
-    category_rows = category_sparsity(
+    target = profile_target(context) if (run_data_profile or run_synthetic_task) else {}
+    claim_context_diagnostics = _claim_context_diagnostics(
+        claim_rows,
         context,
-        _category_columns(context),
-        target_column="high_cost_claim_flag",
-        thresholds=config.rare_category_thresholds,
+        executed=run_data_profile or run_synthetic_task,
     )
-    synthetic = run_synthetic_audit(
-        normalized_frames,
-        context,
-        enable_text=config.enable_text_audit,
-        enable_identifiers=config.enable_identifier_audit,
+    fk_rows = (
+        foreign_key_orphans(normalized_frames, contract)
+        if run_data_quality and contract is not None
+        else []
+    )
+    temporal_rows = (
+        temporal_rules(dict(normalized_frames))
+        if run_data_quality and config.enable_temporal_audit
+        else []
+    )
+    telemetry = (
+        telemetry_quality(normalized_frames.get("dbo.fact_telemetry_monthly", pd.DataFrame()))
+        if run_data_quality
+        else {}
+    )
+    maintenance = (
+        maintenance_quality(normalized_frames.get("dbo.fact_maintenance_event", pd.DataFrame()))
+        if run_data_quality
+        else {}
+    )
+    service_repair = (
+        service_repair_quality(
+            normalized_frames.get("dbo.fact_service_event"),
+            normalized_frames.get("dbo.fact_repair_line"),
+        )
+        if run_data_quality
+        else {"service": {}, "repair": {}}
+    )
+    component_supplier = (
+        component_supplier_quality(
+            normalized_frames.get("dbo.fact_component_installation"),
+            normalized_frames.get("dbo.dim_component"),
+            normalized_frames.get("dbo.dim_supplier"),
+        )
+        if run_data_quality
+        else {"installation": {}, "component": {}, "supplier": {}}
+    )
+    missingness = missingness_summary(normalized_frames) if run_data_profile else []
+    missingness_target = (
+        missingness_by_target(context, columns=context.columns)
+        if run_synthetic_task and not context.empty
+        else []
+    )
+    category_rows = (
+        category_sparsity(
+            context,
+            _category_columns(context),
+            target_column="high_cost_claim_flag",
+            thresholds=config.rare_category_thresholds,
+        )
+        if run_data_profile and not context.empty
+        else []
+    )
+    synthetic = (
+        run_synthetic_audit(
+            normalized_frames,
+            context,
+            enable_text=config.enable_text_audit,
+            enable_identifiers=config.enable_identifier_audit,
+        )
+        if run_synthetic_task
+        else {}
     )
     leakage = synthetic.get("leakage_diagnostics", {})
-    associations = association_table(
-        context,
-        columns=[column for column in context.columns if column not in POST_OUTCOME_COLUMNS],
-        leakage_columns=POST_OUTCOME_COLUMNS,
+    associations = (
+        association_table(
+            context,
+            columns=[column for column in context.columns if column not in POST_OUTCOME_COLUMNS],
+            leakage_columns=POST_OUTCOME_COLUMNS,
+        )
+        if (run_data_profile or run_synthetic_task) and not context.empty
+        else []
     )
     quality = {
         "foreign_key_orphans": fk_rows,
@@ -589,21 +756,23 @@ def profile_dataframes(
         "maintenance": maintenance,
         "service_repair": service_repair,
         "component_supplier": component_supplier,
-        "cost_arithmetic": cost_arithmetic_audit(
-            normalized_frames.get("dbo.fact_repair_line", pd.DataFrame())
+        "cost_arithmetic": (
+            cost_arithmetic_audit(normalized_frames.get("dbo.fact_repair_line", pd.DataFrame()))
+            if run_data_quality
+            else {}
         ),
     }
     findings = _quality_findings(
-        table_profiles,
-        target,
-        fk_rows,
-        temporal_rows,
-        telemetry,
-        maintenance,
-        synthetic,
-        missingness,
-        missingness_target,
-        category_rows,
+        table_profiles if run_data_profile else [],
+        target if run_data_profile else {},
+        fk_rows if run_data_quality else [],
+        temporal_rows if run_data_quality else [],
+        telemetry if run_data_quality else {},
+        maintenance if run_data_quality else {},
+        synthetic if run_synthetic_task else {},
+        missingness if run_data_profile else [],
+        missingness_target if run_synthetic_task else [],
+        category_rows if run_data_profile else [],
     )
     if contract is not None:
         missing_tables = sorted(set(getattr(contract, "table_map", {})) - set(normalized_frames))
@@ -626,6 +795,7 @@ def profile_dataframes(
     result: dict[str, Any] = {
         "phase": "Phase 3 — Data Profiling and Synthetic Data Audit",
         "generated_at": datetime.now(UTC).isoformat(),
+        "task_groups": sorted(selected_tasks),
         "status": overall_status(findings),
         "live_database": live_database or {"executed": False},
         "included_table_count": len(normalized_frames),
@@ -637,6 +807,7 @@ def profile_dataframes(
         ),
         "table_profiles": table_profiles,
         "target_profile": target,
+        "claim_context_diagnostics": claim_context_diagnostics,
         "data_quality": quality,
         "missingness": missingness,
         "missingness_by_target": missingness_target,
@@ -644,6 +815,7 @@ def profile_dataframes(
         "associations": associations,
         "synthetic_data_audit": synthetic,
         "leakage_diagnostics": leakage,
+        "installation_matching": synthetic.get("installation_matching", {}),
         "findings": [finding.model_dump(mode="json") for finding in findings],
         "finding_counts": counts,
         "excluded_tables": list(getattr(contract, "excluded_tables", []))
@@ -675,8 +847,9 @@ def run_live_phase3(
     output_dir: Path | None = None,
     report_formats: tuple[str, ...] = ("json", "markdown"),
     no_charts: bool = True,
+    task_groups: Iterable[str] | None = None,
 ) -> dict[str, Any]:
-    """Validate Phase 2, read only the approved tables, and write Phase 3 reports."""
+    """Validate Phase 2, extract approved tables, and run selected diagnostics."""
 
     config = profiling_settings or ProfilingSettings()
     contract, checksum = load_schema_contract()
@@ -707,6 +880,7 @@ def run_live_phase3(
         write_reports=True,
         output_dir=report_root,
         report_formats=report_formats,
+        task_groups=task_groups,
     )
     result["no_charts"] = no_charts
     return result

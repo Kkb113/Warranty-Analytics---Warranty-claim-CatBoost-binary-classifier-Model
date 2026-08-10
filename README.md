@@ -12,8 +12,14 @@ Current phase: **Phase 3 — Data Profiling and Synthetic Data Audit**.
 Phase 0 model-contract, Phase 1 scaffolding, Phase 2 read-only data access /
 schema validation, and the Phase 3 live profiling run are complete. The live
 run finished with **READY WITH WARNINGS**: all 16 approved tables and 392,352
-rows were profiled, with 0 errors and 9 warnings. The timestamped aggregate
-reports are under `reports/data_profiling/20260810T032748Z/`.
+rows were profiled, with 0 errors and 8 warnings. This corrected run supersedes
+the earlier 9-warning Phase 3 diagnostic. The timestamped aggregate reports are
+under `reports/data_profiling/20260810T041849Z/`.
+
+The corrected baseline includes explicit component/supplier context joins,
+as-of-safe component-installation matching, and monthly telemetry semantics
+that do not treat `engine_hours_month` as cumulative. It is diagnostic only;
+Phase 4 target approval, leakage enforcement, and feature design remain open.
 
 No predictive model has been trained yet, and no feature mart, inference API,
 or monitoring capability exists.
@@ -38,6 +44,13 @@ credentials or database exports.
     warranty-model synthetic-audit
     warranty-model data-quality-check
     warranty-model phase3-run --no-charts
+
+Phase 3 commands share the read-only extractor but select distinct task groups:
+`data-profile` runs profiling and target/category/missingness diagnostics,
+`synthetic-audit` runs synthetic/leakage/group diagnostics,
+`data-quality-check` runs relational/temporal/operational checks, and
+`phase3-run` runs the complete workflow. CI installs the same profiling group
+with `.[dev,database,profiling]` and remains SQL Server-independent.
 
 `schema-contract-check` is offline and validates the checked-in YAML. `db-check`
 and `schema-validate` require live settings such as `WARRANTY_DB_SERVER` and an

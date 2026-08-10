@@ -10,7 +10,7 @@
 | Version | 0.1 |
 | Last updated | 2026-08-05 |
 | Companion document | docs/model_contract.md |
-| Source schema document | /mnt/data/warranty_analytics_schema_document.docx (workspace copy: C:\Users\karth\OneDrive\Documents\Intellify\warranty_analytics_model\warranty_analytics_schema_document.docx) |
+| Source schema document | `warranty_analytics_schema_document.docx` |
 
 This register records unresolved questions that must be answered without guessing.
 The current answers distinguish what is documented in the schema from what requires

@@ -26,6 +26,13 @@ from .database.schema_validator import validate_schema
 from .logging_config import configure_logging
 from .paths import discover_repository_root, resolve_project_paths
 
+_PHASE3_TASK_GROUPS = {
+    "data-profile": ("data_profile",),
+    "synthetic-audit": ("synthetic_audit",),
+    "data-quality-check": ("data_quality",),
+    "phase3-run": ("data_profile", "synthetic_audit", "data_quality"),
+}
+
 
 def build_parser() -> argparse.ArgumentParser:
     """Build the supported infrastructure CLI parser."""
@@ -64,9 +71,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Report formats when reporting is enabled.",
     )
     for command, help_text in (
-        ("data-profile", "Profile approved business tables and the warranty target."),
-        ("synthetic-audit", "Run target, identifier, duplicate, group, and text audits."),
-        ("data-quality-check", "Run referential, temporal, telemetry, and logical quality checks."),
+        ("data-profile", "Run table, column, target, category, and missingness profiling."),
+        (
+            "synthetic-audit",
+            "Run target-generation, leakage, identifier, duplicate, group, and text audits.",
+        ),
+        (
+            "data-quality-check",
+            "Run referential, temporal, telemetry, maintenance, service/repair, and component/supplier checks.",
+        ),
         ("phase3-run", "Run the complete Phase 3 profiling and audit workflow."),
     ):
         phase3 = subparsers.add_parser(command, help=help_text)
@@ -86,6 +99,15 @@ def build_parser() -> argparse.ArgumentParser:
             help="Return a non-zero status when Phase 3 records ERROR findings.",
         )
     return parser
+
+
+def phase3_task_groups(command: str) -> tuple[str, ...]:
+    """Map a Phase 3 CLI command to shared execution task groups."""
+
+    try:
+        return _PHASE3_TASK_GROUPS[command]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported Phase 3 command: {command}") from exc
 
 
 def run_doctor(project_root: Path | None = None) -> tuple[bool, list[str]]:
@@ -293,6 +315,7 @@ def _run_phase3(arguments: argparse.Namespace) -> int:
             output_dir=arguments.output_dir,
             report_formats=formats,
             no_charts=arguments.no_charts,
+            task_groups=phase3_task_groups(arguments.command),
         )
     except ConfigurationError as exc:
         print(f"Configuration error: {exc}", file=sys.stderr)
@@ -316,7 +339,8 @@ def _run_phase3(arguments: argparse.Namespace) -> int:
     counts = result.get("finding_counts", {})
     target = result.get("target_profile", {})
     report = result.get("report_directory", "-")
-    print("Phase 3 profiling completed")
+    print(f"Phase 3 command completed: {arguments.command}")
+    print(f"Task groups: {', '.join(phase3_task_groups(arguments.command))}")
     print(f"Tables profiled: {result.get('included_table_count', 0)}")
     print(f"Claims analyzed: {target.get('claims', 0) if isinstance(target, dict) else 0}")
     print(f"Data quality errors: {counts.get('ERROR', 0) if isinstance(counts, dict) else 0}")

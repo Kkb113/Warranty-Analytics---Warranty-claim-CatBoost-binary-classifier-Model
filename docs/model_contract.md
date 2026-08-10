@@ -9,7 +9,7 @@
 | Document status | Draft — requires business and data-owner approval |
 | Version | 0.1 |
 | Creation date | 2026-08-05 |
-| Source schema document | /mnt/data/warranty_analytics_schema_document.docx (workspace copy: C:\Users\karth\OneDrive\Documents\Intellify\warranty_analytics_model\warranty_analytics_schema_document.docx) |
+| Source schema document | `warranty_analytics_schema_document.docx` |
 | Documented database | warranty_analytics |
 | Intended reviewers | Warranty business owner, warranty data owner, synthetic-data/schema owner, machine-learning owner, and warranty operations lead |
 | Approval status | Not approved |
@@ -489,9 +489,8 @@ The following are treated as documented facts supplied by the Phase 0 brief:
   subject to eligibility filtering.
 - The schema documents dates but not precise claim-submission timestamps.
 
-The source document was inspected from its workspace copy at
-C:\Users\karth\OneDrive\Documents\Intellify\warranty_analytics_model\warranty_analytics_schema_document.docx.
-It documents the table inventory, columns, keys, relationships, catalog row estimates,
+The source document was inspected from its repository copy,
+`warranty_analytics_schema_document.docx`. It documents the table inventory, columns, keys, relationships, catalog row estimates,
 and the explicit exclusion of the three dbo.ml_* tables. It does not document the
 synthetic target-generation formula, claim-submission timestamps, or the operational
 time at which every claim field becomes available. Those remain open questions.

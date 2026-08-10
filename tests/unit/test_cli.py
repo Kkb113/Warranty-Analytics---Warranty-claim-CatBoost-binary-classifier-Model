@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
+from warranty_analytics_model import cli
 from warranty_analytics_model.cli import main
 
 
@@ -79,3 +82,40 @@ def test_cli_without_command_prints_help(capsys: pytest.CaptureFixture[str]) -> 
 
     assert main([]) == 0
     assert "usage:" in capsys.readouterr().out
+
+
+def test_cli_phase3_commands_route_to_distinct_task_groups(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Each Phase 3 command selects its documented shared-engine task group."""
+
+    calls: list[tuple[str, ...]] = []
+    monkeypatch.setattr(cli, "_load_live_settings", lambda: (object(), 0))
+    monkeypatch.setattr(
+        "warranty_analytics_model.profiling.config.load_profiling_settings",
+        lambda: SimpleNamespace(),
+    )
+
+    def fake_run_live_phase3(_settings: object, **kwargs: object) -> dict[str, object]:
+        calls.append(tuple(kwargs["task_groups"]))
+        return {
+            "finding_counts": {"ERROR": 0, "WARNING": 0, "INFO": 0},
+            "target_profile": {"claims": 0, "positive_percentage": 0.0},
+            "included_table_count": 0,
+            "status": "READY",
+            "report_directory": "-",
+        }
+
+    monkeypatch.setattr(
+        "warranty_analytics_model.profiling.runner.run_live_phase3", fake_run_live_phase3
+    )
+    for command, expected in (
+        ("data-profile", ("data_profile",)),
+        ("synthetic-audit", ("synthetic_audit",)),
+        ("data-quality-check", ("data_quality",)),
+        ("phase3-run", ("data_profile", "synthetic_audit", "data_quality")),
+    ):
+        assert main([command]) == 0
+        assert calls[-1] == expected
+
+    assert cli.phase3_task_groups("data-profile") == ("data_profile",)

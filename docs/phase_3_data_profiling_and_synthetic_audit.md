@@ -22,7 +22,7 @@ Created:
   contract-scoped extraction, table/column/target profiling, relational,
   temporal, telemetry, maintenance, service/repair, component/supplier,
   association, category sparsity, duplicate, identifier, text, synthetic
-  audit, findings, reporting, and runner modules;
+  audit, as-of installation matching, findings, reporting, and runner modules;
 - `configs/profiling.yaml`;
 - database-independent fictional unit tests under
   `tests/unit/profiling/` and an opt-in live-test placeholder under
@@ -52,12 +52,16 @@ records.
 ## Findings and live status
 
 The Phase 3 implementation and fictional offline tests completed successfully.
-The live run completed on 2026-08-10 UTC with `db-check` and
-`schema-validate` passing, followed by `phase3-run --no-charts --format both
---fail-on-error`. The run status is **READY WITH WARNINGS**: 0 errors, 9
-warnings, and 0 informational findings. The report is aggregate-only and is
-stored in the ignored directory
-`reports/data_profiling/20260810T032748Z/`.
+The earlier live diagnostic reported 9 warnings, but that result is superseded
+by this corrective hardening pass: its component join did not explicitly map
+`causal_component_key` to `component_key`, and it incorrectly treated monthly
+engine hours as cumulative. The corrected live run completed on 2026-08-10 UTC
+with `db-check` and `schema-validate` passing, followed by
+`phase3-run --no-charts --format both --fail-on-error`. The corrected status is
+**READY WITH WARNINGS**: 0 errors, 8 warnings, and 0 informational findings.
+The corrected aggregate report is stored in the ignored directory
+`reports/data_profiling/20260810T041849Z/` and is the current Phase 3 source of
+truth.
 
 The live run profiled these exact approved-table row counts:
 
@@ -89,16 +93,38 @@ minimum positive 10,000.91, zero exceptions, and no distribution overlap;
 this is evidence of a likely synthetic generation rule, not an approved
 business definition.
 
-The nine live warnings were: high missingness in
+The corrected eight live warnings are: high missingness in
 `dim_warranty_policy.effective_end_date` (60.0%) and
 `fact_repair_line.part_no` (71.428571%); target imbalance; 44,193 telemetry
-missing-month gaps; 87,526 telemetry engine-hours decreases; synthetic
-identifier leakage; 293 supported target-pure groups; duplicate scenario
-families in repair-line and repair-pattern fingerprints; and one sparse
-category field. No temporal rule violations, maintenance logical conflicts,
-duplicate event records, or foreign-key orphans were observed. Repair-line
-part numbers were missing in 21,250 rows; service/repair and component/supplier
+missing-month gaps; synthetic identifier leakage; 456 supported target-pure
+groups; duplicate scenario families in repair-line and repair-pattern
+fingerprints; and one sparse category field. The previous 87,526
+engine-hours-decrease warning is removed because `engine_hours_month` is a
+monthly quantity, not a cumulative sequence. No idle-hours-over-engine-hours,
+negative-measurement, odometer-decrease, temporal-rule, maintenance-conflict,
+duplicate-event, or foreign-key-orphan finding was observed. Repair-line part
+numbers were missing in 21,250 rows; service/repair and component/supplier
 audits otherwise completed with aggregate diagnostics.
+
+The warning issue codes are `HIGH_MISSINGNESS` (two fields),
+`TARGET_IMBALANCE`, `TELEMETRY_SEQUENCE_ISSUE`,
+`SYNTHETIC_IDENTIFIER_LEAKAGE`, `SUPPORTED_TARGET_PURE_GROUP`,
+`DUPLICATE_SCENARIO_FAMILY`, and `SPARSE_CATEGORIES`.
+
+The corrected claim context joined `causal_component_key` to
+`dim_component.component_key` and then `dim_component.supplier_key` to
+`dim_supplier.supplier_key`. All 8,500 claims received component context and
+supplier context, the diagnostic context remained 8,500 rows, and no row
+multiplication was detected. These attributes remain diagnostic evidence and
+are not approved production features.
+
+The installation as-of audit used `failure_date` when available and
+`claim_date` as the fallback, requiring `installed_date <= diagnostic_as_of_date`
+and selecting the latest eligible installation. It found 8,499 matched claims,
+1 unmatched claim, 11 ambiguous same-date matches, 230 claims with multiple
+historical installations, and 0 future installation rows excluded. Ambiguous
+latest-date rows were not used for purity unless audited grouping values were
+identical and safe to collapse; no claim was multiplied.
 
 Fourteen suspected post-outcome leakage fields were quantified:
 `total_claim_cost`, `labor_cost`, `parts_cost`, `other_cost`,
@@ -113,11 +139,14 @@ no credentials were included in the reports. A trusted server certificate is
 preferred for persistent use.
 
 Offline tests specifically demonstrate threshold-separation evidence,
-post-outcome leakage diagnostics, identifier/group purity, duplicate and text
-fingerprints, FK orphan counts, date rules, telemetry gaps/decreases,
-maintenance conflicts, service/repair arithmetic, category sparsity, and
-secret-safe JSON/Markdown output. These fictional fixtures are not evidence
-about the live warranty population.
+post-outcome leakage diagnostics, explicit component/supplier joins,
+many-to-one failure behavior, installation as-of cases, identifier/group
+purity, duplicate and text fingerprints, FK orphan counts, date rules,
+monthly telemetry semantics, idle-hours logic, maintenance conflicts,
+service/repair arithmetic, category sparsity, task-group CLI routing, CI
+profiling imports, and secret-safe JSON/Markdown output. The final clean suite
+passed 98 tests with 3 skips at 84.93% coverage. These fictional fixtures are
+not evidence about the live warranty population.
 
 ## Known limitations and Phase 4 recommendations
 
@@ -133,6 +162,7 @@ about the live warranty population.
 
 ## Definition of done
 
-Implementation scope and the live Phase 3 data-availability audit are complete
-with documented warnings. No database writes, excluded-table reads, production
+Implementation scope and the corrected live Phase 3 data-availability audit
+are complete with documented warnings. The corrected run supersedes the earlier
+9-warning result. No database writes, excluded-table reads, production
 features, train/test split, or predictive model training occurred.

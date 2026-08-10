@@ -9,6 +9,7 @@ import pandas as pd
 from .association import association_table, missingness_by_target
 from .duplicate_audit import audit_duplicates
 from .identifier_audit import audit_identifiers
+from .installation_audit import INSTALLATION_GROUP_COLUMNS, match_component_installations_asof
 from .target_profile import audit_target_generation
 from .text_audit import audit_text
 
@@ -144,47 +145,33 @@ def run_synthetic_audit(
         "truck_model_key",
     )
     purity_frame = claims.copy()
+    installation_matching: dict[str, object] = {
+        "as_of_rule": "failure_date when available, otherwise claim_date",
+        "claims_with_causal_component": 0,
+        "matched_as_of_installation": 0,
+        "unmatched_as_of_installation": 0,
+        "ambiguous_as_of_installation": 0,
+        "future_installations_excluded": 0,
+        "claims_with_multiple_historical_installations": 0,
+    }
     installations = frames.get("dbo.fact_component_installation")
-    if (
-        installations is not None
-        and {"truck_key", "causal_component_key"}.issubset(claims.columns)
-        and {"truck_key", "component_key"}.issubset(installations.columns)
-    ):
-        left = claims[["truck_key", "causal_component_key", target_column]].copy()
-        right_columns = [
-            column
-            for column in (
-                "truck_key",
-                "component_key",
-                "component_lot_no",
-                "production_batch_id",
-                "supplier_key",
-            )
-            if column in installations.columns
-        ]
-        right = installations[right_columns].rename(
-            columns={"component_key": "causal_component_key"}
-        )
-        joined = left.merge(right, on=["truck_key", "causal_component_key"], how="left")
-        if "component_lot_no" in joined:
-            purity_frame = joined.rename(
-                columns={
-                    "component_lot_no": "installation_component_lot_no",
-                    "production_batch_id": "installation_production_batch_id",
-                    "supplier_key": "installation_supplier_key",
-                }
-            )
-            purity_columns = purity_columns + (
-                "installation_component_lot_no",
-                "installation_production_batch_id",
-                "installation_supplier_key",
-            )
+    purity_frame, installation_matching = match_component_installations_asof(
+        claims,
+        installations,
+        grouping_columns=INSTALLATION_GROUP_COLUMNS,
+    )
+    purity_columns = purity_columns + (
+        "installation_component_lot_no",
+        "installation_production_batch_id",
+        "installation_supplier_key",
+    )
     return {
         "target_generation": audit_target_generation(claims, target_column),
         "identifier_audit": audit_identifiers(claims, target_column)
         if enable_identifiers
         else {"fields": [], "flags": []},
         "group_purity": group_purity(purity_frame, purity_columns, target_column),
+        "installation_matching": installation_matching,
         "duplicate_audit": audit_duplicates(frames, target_column),
         "text_audit": audit_text(frames, target_column)
         if enable_text
