@@ -69,9 +69,11 @@ def load_development_targets(
     numeric_target = pd.to_numeric(loaded[TARGET], errors="coerce")
     if numeric_target.isna().any():
         raise BaselineModelError("Development target contains a non-numeric value.")
-    values = set(numeric_target.astype(int))
-    if values != {0, 1}:
-        raise BaselineModelError(f"Development target must contain exactly {{0, 1}}; got {values}.")
+    if not numeric_target.isin([0, 1]).all():
+        values = sorted({str(value) for value in numeric_target.tolist()})
+        raise BaselineModelError(
+            f"Development target must contain exact binary values {{0, 1}}; got {values}."
+        )
     loaded[TARGET] = numeric_target.astype("int8")
     joined = assignments.loc[
         assignments["split"].isin(["TRAIN", "VALIDATION"]), [KEY, "split"]

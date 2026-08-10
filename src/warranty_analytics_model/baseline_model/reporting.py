@@ -15,6 +15,7 @@ def write_phase9_reports(report_dir: Path, summary: dict[str, Any]) -> None:
         "# Phase 9 — Baseline Model Training",
         "",
         f"Status: **{summary['status']}**",
+        f"Hardening status: **{summary.get('hardening_status', '-')}**",
         f"Development champion: **{summary['champion_experiment_id']}**",
         "",
         "## Validation metrics",
@@ -40,4 +41,17 @@ def write_phase9_reports(report_dir: Path, summary: dict[str, Any]) -> None:
             "This is a synthetic proof-of-concept baseline and is not approved for production.",
         ]
     )
+    comparison = summary.get("comparison")
+    if isinstance(comparison, dict):
+        write_json(report_dir / "baseline_model_comparison.json", comparison)
+        lines.extend(
+            [
+                "",
+                "## Before/after comparison",
+                "",
+                f"Comparison status: **{comparison.get('status', '-')}**",
+                f"Compared immutable runs: `{comparison.get('before_run_id', '-')}` → "
+                f"`{comparison.get('after_run_id', '-')}`.",
+            ]
+        )
     (report_dir / "baseline_model_report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")

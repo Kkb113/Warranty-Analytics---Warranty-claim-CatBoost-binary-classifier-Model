@@ -20,9 +20,14 @@ from .feature_sets import feature_sets_payload
 from .input import phase9_plan_check
 from .metrics import apply_ap_lift, performance_warnings, select_champion
 from .models import BaselineModelError
+from .provenance import (
+    HARDENING_VERSION,
+    prediction_content_sha256,
+    runtime_provenance,
+)
 from .reporting import write_phase9_reports
 from .target import KEY, load_development_targets, target_summary
-from .validation import validate_model_directory
+from .validation import compare_phase9_runs, validate_model_directory
 
 
 def _resolve(root: Path, value: Path | None, default: str) -> Path:
@@ -127,11 +132,18 @@ def build_phase9(
             .sort_values(["experiment_id", KEY])
             .reset_index(drop=True)
         )
-        prediction_meta = write_parquet(
+        prediction_meta: dict[str, Any] = write_parquet(
             predictions,
             temporary / "validation_predictions.parquet",
             compression=settings.compression,
         )
+        prediction_meta["canonical_content_sha256"] = prediction_content_sha256(predictions)
+        prediction_meta["experiment_row_counts"] = {
+            str(experiment_id): int(count)
+            for experiment_id, count in predictions.groupby("experiment_id", sort=False)
+            .size()
+            .items()
+        }
         metrics_payload = _metrics_payload(results, champion.experiment_id)
         write_json(temporary / "validation_metrics.json", metrics_payload)
         write_json(temporary / "feature_sets.json", feature_sets_payload(feature_sets))
@@ -148,9 +160,15 @@ def build_phase9(
                 for experiment_id, spec in feature_sets.items()
             },
         )
-        write_json(
-            temporary / "target_access_audit.json", {**targets.audit, **target_summary(targets)}
-        )
+        target_payload = {
+            **targets.audit,
+            **target_summary(targets),
+            "target_hashes": {
+                "train": targets.train_target_content_sha256,
+                "validation": targets.validation_target_content_sha256,
+            },
+        }
+        write_json(temporary / "target_access_audit.json", target_payload)
         model_payload = {
             "models": {
                 item.experiment_id: {
@@ -165,7 +183,7 @@ def build_phase9(
                     "warning": item.warning,
                 }
                 for item in results
-                if item.experiment_id != "E0"
+                if item.experiment_id != "E0" and item.status == "SUCCESS"
             }
         }
         write_json(temporary / "model_manifest.json", model_payload)
@@ -186,6 +204,8 @@ def build_phase9(
         experiment_manifest = {
             "phase": 9,
             "run_id": selected_run_id,
+            "hardening_version": HARDENING_VERSION,
+            "hardened_status": "HARDENED_PASS",
             "created_at_utc": datetime.now(UTC).isoformat(),
             "git_commit_sha": git_commit_sha(root),
             "contract_sha256": contract_sha,
@@ -208,9 +228,30 @@ def build_phase9(
             "frozen_membership": inputs.frozen_membership,
             "source_audit": inputs.source_audit,
             "target_summary": target_summary(targets),
+            "target_hashes": {
+                "train": targets.train_target_content_sha256,
+                "validation": targets.validation_target_content_sha256,
+            },
             "test_seal": targets.audit,
             "settings": settings_payload(settings),
+            "runtime_versions": runtime_provenance(),
             "champion_experiment_id": champion.experiment_id,
+            "report_directory": str(report_root / selected_run_id),
+            "experiment_inventory": {
+                item.experiment_id: {
+                    "model_type": item.model_type,
+                    "status": item.status,
+                    "warning": item.warning,
+                }
+                for item in results
+            },
+            "feature_set_inventory": {
+                experiment_id: {
+                    "feature_count": spec.feature_count,
+                    "feature_set_sha256": spec.feature_set_sha256,
+                }
+                for experiment_id, spec in feature_sets.items()
+            },
             "prediction_artifact": prediction_meta,
             "artifact_file_sha256": {
                 name: sha256_file(temporary / name) for name in artifact_files
@@ -219,7 +260,12 @@ def build_phase9(
             "production_approved": False,
         }
         write_json(temporary / "experiment_manifest.json", experiment_manifest)
-        validation = validate_model_directory(temporary, project_root=root, inputs=inputs)
+        validation = validate_model_directory(
+            temporary,
+            project_root=root,
+            inputs=inputs,
+            allow_report_pending=True,
+        )
         if validation["errors"]:
             raise BaselineModelError(
                 "Phase 9 artifact validation blocks publication: " + "; ".join(validation["errors"])
@@ -230,6 +276,12 @@ def build_phase9(
         if temporary.exists():
             shutil.rmtree(temporary)
         raise
+    comparison = None
+    comparison_source = output_root / "20260810T_PHASE9"
+    if comparison_source.is_dir() and comparison_source.resolve() != final_dir.resolve():
+        comparison = compare_phase9_runs(comparison_source, final_dir)
+        if not comparison["valid"]:
+            warnings.extend(f"BEFORE_AFTER_COMPARISON: {error}" for error in comparison["errors"])
     summary = {
         "status": "PASS WITH WARNINGS" if warnings else "PASS",
         "run_id": selected_run_id,
@@ -239,11 +291,24 @@ def build_phase9(
         "test_seal": targets.audit,
         "feature_sets": feature_sets_payload(feature_sets),
         "warnings": warnings,
+        "hardening_status": validation.get("hardening_status"),
+        "runtime_versions": runtime_provenance(),
+        "comparison": comparison,
         "run_directory": str(final_dir),
         "validation": validation,
     }
     if not no_report:
         report_path = report_root / selected_run_id
+        write_phase9_reports(report_path, summary)
+        validation = validate_model_directory(final_dir, project_root=root, inputs=inputs)
+        if validation["errors"]:
+            raise BaselineModelError(
+                "Post-publication Phase 9 validation blocks acceptance: "
+                + "; ".join(validation["errors"])
+            )
+        write_json(final_dir / "validation.json", validation)
+        summary["validation"] = validation
+        summary["hardening_status"] = validation.get("hardening_status")
         write_phase9_reports(report_path, summary)
     else:
         report_path = None

@@ -133,11 +133,15 @@ the exact Phase 6 membership and TEST lock. The Phase 8 run is under
 `artifacts/text_features/20260810T_PHASE8/`; aggregate reports are under
 `reports/phase8_text_features/20260810T_PHASE8/`.
 
-Phase 9 baseline training is complete with **PASS WITH WARNINGS**. E0–E4 were
-evaluated on the frozen VALIDATION split only, E3 was selected as the
-development champion, and saved-model reload validation passed. No TEST target,
-prediction, or metric was accessed or generated. The local ignored run is under
-`artifacts/baseline_models/20260810T_PHASE9/`.
+Phase 9 baseline training and its corrective hardening are complete with
+**PASS WITH WARNINGS**. E0–E4 are evaluated on the frozen VALIDATION split
+only, E3 remains the development champion, and saved-model reload validation
+passes at the locked probability tolerance. The immutable original run is
+retained as `LEGACY_VALID`; the hardened reproduction records exact target,
+feature, prediction, runtime, inventory, and policy provenance. No TEST target,
+prediction, or metric is accessed or generated. Phase 10 may start only after
+the hardened run/comparison passes; this remains a synthetic POC and is not
+production approval.
 
 ## Repository structure
 

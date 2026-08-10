@@ -32,6 +32,31 @@ The completed local run `20260810T_PHASE9` selected E3 on VALIDATION average
 precision. This remains a synthetic POC result, is not production approval,
 and must not be interpreted as final TEST performance.
 
+## Corrective hardening
+
+The corrective hardening pass preserves the Phase 9 experiment semantics and
+adds fail-closed artifact acceptance controls:
+
+- target labels are validated as exact binary values before integer casting;
+- standalone validation freshly reloads development targets and reconciles all
+  persisted TRAIN/VALIDATION target hashes while rejecting recursive TEST hashes;
+- E0–E4 statuses, model files, per-experiment VALIDATION membership, duplicate
+  rows, E4-unavailable behavior, champion selection, AP lift, and feature-set
+  lineage hashes are independently recomputed;
+- persisted CatBoost policy is checked for the locked parameters, disabled
+  weighting, no evaluation-set/early-stopping decisions, and reload probability
+  equality at `atol=1e-12`, `rtol=0`;
+- runtime/library provenance is recorded without usernames, home paths,
+  secrets, or environment dumps; and
+- the TEST seal requires zero labels, predictions, and metrics, with no TEST
+  artifact files and Phase 15 as the first allowed TEST-target phase.
+
+The original `20260810T_PHASE9` run is immutable and validates as
+`LEGACY_VALID`. A corrective run should use a new immutable ID, for example
+`20260811T_PHASE9_HARDENED`; its report includes the before/after comparison.
+If the locked inputs and runtime are reproduced, the expected champion remains
+E3. Phase 10 may begin only after the hardened run and comparison pass.
+
 ## Commands
 
     warranty-model phase9-contract-check

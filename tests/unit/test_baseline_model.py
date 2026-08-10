@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -40,11 +41,31 @@ from warranty_analytics_model.baseline_model.models import (
     ExperimentResult,
     FeatureSetSpec,
 )
+from warranty_analytics_model.baseline_model.provenance import (
+    MODEL_CORE_PARAMETERS,
+    model_policy_errors,
+    prediction_content_sha256,
+    runtime_provenance,
+    runtime_provenance_errors,
+)
 from warranty_analytics_model.baseline_model.target import (
     KEY,
     TARGET,
     load_development_targets,
     target_summary,
+)
+from warranty_analytics_model.baseline_model.validation import (
+    _validate_ap_lift,
+    _validate_champion,
+    _validate_configuration_policy,
+    _validate_experiment_inventory,
+    _validate_feature_sets,
+    _validate_input_hashes,
+    _validate_predictions,
+    _validate_target_metadata,
+    _validate_test_seal,
+    _walk_target_hashes,
+    compare_phase9_runs,
 )
 
 
@@ -156,6 +177,39 @@ def test_champion_tie_break_prefers_simpler_experiment() -> None:
     assert select_champion(results).experiment_id == "E1"
 
 
+@pytest.mark.parametrize(
+    ("metrics_by_id", "expected"),
+    [
+        (
+            {
+                "E1": {"average_precision": 0.7, "roc_auc": 0.7, "log_loss": 0.2},
+                "E2": {"average_precision": 0.7, "roc_auc": 0.8, "log_loss": 0.3},
+                "E3": {"average_precision": 0.6, "roc_auc": 0.9, "log_loss": 0.1},
+                "E4": {"average_precision": 0.5, "roc_auc": 0.9, "log_loss": 0.1},
+            },
+            "E2",
+        ),
+        (
+            {
+                "E1": {"average_precision": 0.7, "roc_auc": 0.8, "log_loss": 0.3},
+                "E2": {"average_precision": 0.7, "roc_auc": 0.8, "log_loss": 0.2},
+                "E3": {"average_precision": 0.6, "roc_auc": 0.9, "log_loss": 0.1},
+                "E4": {"average_precision": 0.5, "roc_auc": 0.9, "log_loss": 0.1},
+            },
+            "E2",
+        ),
+    ],
+)
+def test_champion_ties_apply_roc_and_logloss_breaks(
+    metrics_by_id: dict[str, dict[str, float]], expected: str
+) -> None:
+    results = [
+        ExperimentResult(experiment_id, "CatBoostClassifier", "SUCCESS", None, metrics, None)
+        for experiment_id, metrics in metrics_by_id.items()
+    ]
+    assert select_champion(results).experiment_id == expected
+
+
 def test_target_loader_materializes_only_train_and_validation(tmp_path: Path) -> None:
     snapshot = pd.DataFrame({KEY: [1, 2, 3, 4, 5, 6], TARGET: [0, 1, 0, 1, 0, 1]})
     path = tmp_path / "claim_snapshot.parquet"
@@ -173,6 +227,37 @@ def test_target_loader_materializes_only_train_and_validation(tmp_path: Path) ->
     assert set(targets.train[KEY]) == {1, 2}
     assert set(targets.validation[KEY]) == {3, 4}
     assert "test" not in summary
+
+
+def _write_target_fixture(tmp_path: Path, values: list[object]) -> tuple[Path, pd.DataFrame]:
+    snapshot = pd.DataFrame({KEY: [1, 2, 3, 4, 5, 6], TARGET: values})
+    if any(isinstance(value, str) for value in values):
+        snapshot[TARGET] = snapshot[TARGET].astype("string")
+    path = tmp_path / "claim_snapshot.parquet"
+    snapshot.to_parquet(path, index=False)
+    assignments = pd.DataFrame(
+        {
+            KEY: [1, 2, 3, 4, 5, 6],
+            "split": ["TRAIN", "TRAIN", "VALIDATION", "VALIDATION", "TEST", "TEST"],
+        }
+    )
+    return path, assignments
+
+
+@pytest.mark.parametrize(
+    "invalid", [0.5, -1, 2, float("inf"), float("-inf"), np.nan, "not-a-number"]
+)
+def test_target_loader_rejects_non_exact_binary_values(tmp_path: Path, invalid: object) -> None:
+    path, assignments = _write_target_fixture(tmp_path, [0, 1, 0, invalid, 0, 1])
+    with pytest.raises(BaselineModelError, match="exact binary|non-numeric|NULL"):
+        load_development_targets(path, assignments)
+
+
+def test_target_loader_accepts_binary_float_labels_without_truncation(tmp_path: Path) -> None:
+    path, assignments = _write_target_fixture(tmp_path, [0.0, 1.0, 0.0, 1.0, 0.0, 1.0])
+    targets = load_development_targets(path, assignments)
+    assert targets.train[TARGET].tolist() == [0, 1]
+    assert targets.validation[TARGET].tolist() == [0, 1]
 
 
 def test_small_catboost_fit_is_repeatable_and_reload_safe(tmp_path: Path) -> None:
@@ -764,3 +849,479 @@ def test_small_public_helpers_and_single_class_metric_guard(
     )
     assert runner.validate_existing_model_run(tmp_path)["valid"] is True
     assert runner.phase9_run_id().endswith("Z")
+
+
+def test_persisted_target_hashes_must_match_fresh_train_and_validation_hashes(
+    tmp_path: Path,
+) -> None:
+    train = pd.DataFrame({KEY: [1, 2], TARGET: [0, 1]})
+    validation = pd.DataFrame({KEY: [3, 4], TARGET: [0, 1]})
+    targets = SimpleNamespace(
+        train=train,
+        validation=validation,
+        train_target_content_sha256="train-digest",
+        validation_target_content_sha256="validation-digest",
+    )
+    (tmp_path / "metadata.json").write_text(
+        json.dumps({"target_hashes": {"train": "train-digest", "validation": "validation-digest"}}),
+        encoding="utf-8",
+    )
+    audit = {
+        "train": {"rows": 2, "positive_count": 1, "negative_count": 1},
+        "validation": {"rows": 2, "positive_count": 1, "negative_count": 1},
+    }
+    errors: list[str] = []
+    _validate_target_metadata(
+        tmp_path,
+        audit,
+        {"target_summary": {"train": {}, "validation": {}}},
+        targets,
+        hardened=True,
+        errors=errors,
+        warnings=[],
+    )
+    assert errors == []
+    (tmp_path / "metadata.json").write_text(
+        json.dumps({"target_hashes": {"train": "wrong", "validation": "validation-digest"}}),
+        encoding="utf-8",
+    )
+    errors = []
+    _validate_target_metadata(
+        tmp_path,
+        audit,
+        {"target_summary": {"train": {}, "validation": {}}},
+        targets,
+        hardened=True,
+        errors=errors,
+        warnings=[],
+    )
+    assert any("TRAIN" in error for error in errors)
+
+
+def test_test_target_hash_is_rejected_recursively() -> None:
+    found, errors = _walk_target_hashes(
+        {"nested": [{"test_target_content_sha256": "must-not-exist"}]}
+    )
+    assert found == []
+    assert any("TEST target hash" in error for error in errors)
+
+
+def _inventory_fixture(
+    tmp_path: Path, *, e4_status: str
+) -> tuple[dict[str, object], dict[str, object]]:
+    models: dict[str, object] = {}
+    for experiment_id in ("E1", "E2", "E3"):
+        path = tmp_path / "models" / f"{experiment_id.casefold()}.cbm"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(experiment_id.encode("ascii"))
+        from warranty_analytics_model.feature_mart.manifest import sha256_file
+
+        models[experiment_id] = {
+            "model_file": f"models/{experiment_id.casefold()}.cbm",
+            "model_sha256": sha256_file(path),
+        }
+    if e4_status == "SUCCESS":
+        path = tmp_path / "models" / "e4.cbm"
+        path.write_bytes(b"E4")
+        from warranty_analytics_model.feature_mart.manifest import sha256_file
+
+        models["E4"] = {"model_file": "models/e4.cbm", "model_sha256": sha256_file(path)}
+    experiments = {
+        experiment_id: {"status": "SUCCESS", "metrics": {}}
+        for experiment_id in ("E0", "E1", "E2", "E3")
+    }
+    experiments["E4"] = {"status": e4_status, "metrics": {}}
+    return {"experiments": experiments}, {"models": models}
+
+
+def test_experiment_inventory_allows_unavailable_e4_but_rejects_missing_and_extra_ids(
+    tmp_path: Path,
+) -> None:
+    metrics, model_manifest = _inventory_fixture(tmp_path, e4_status="UNAVAILABLE_WITH_WARNING")
+    errors: list[str] = []
+    statuses = _validate_experiment_inventory(
+        metrics,
+        model_manifest,
+        tmp_path,
+        hardened=True,
+        errors=errors,
+        warnings=[],
+    )
+    assert not errors
+    assert statuses["E4"]["status"] == "UNAVAILABLE_WITH_WARNING"
+    missing_e4 = {"experiments": dict(metrics["experiments"])}
+    del missing_e4["experiments"]["E4"]
+    errors = []
+    _validate_experiment_inventory(
+        missing_e4,
+        model_manifest,
+        tmp_path,
+        hardened=True,
+        errors=errors,
+        warnings=[],
+    )
+    assert any("exactly E0" in error for error in errors)
+    extra = {"experiments": {**metrics["experiments"], "E5": {"status": "SUCCESS"}}}
+    errors = []
+    _validate_experiment_inventory(
+        extra,
+        model_manifest,
+        tmp_path,
+        hardened=True,
+        errors=errors,
+        warnings=[],
+    )
+    assert any("exactly E0" in error for error in errors)
+
+
+def _prediction_fixture(
+    *, e4_status: str = "SUCCESS"
+) -> tuple[pd.DataFrame, dict[str, dict[str, object]]]:
+    statuses = {experiment_id: {"status": "SUCCESS"} for experiment_id in ("E0", "E1", "E2", "E3")}
+    statuses["E4"] = {"status": e4_status}
+    rows = [
+        {KEY: key, "experiment_id": experiment_id, "probability": 0.1 + 0.1 * key}
+        for experiment_id, key in (
+            (experiment_id, key) for experiment_id in statuses for key in (1, 2)
+        )
+        if statuses[experiment_id]["status"] == "SUCCESS"
+    ]
+    return pd.DataFrame(rows, columns=[KEY, "experiment_id", "probability"]), statuses
+
+
+def test_prediction_audit_requires_exact_per_experiment_validation_membership() -> None:
+    predictions, statuses = _prediction_fixture()
+    manifest = {
+        "prediction_artifact": {
+            "row_count": len(predictions),
+            "column_count": 3,
+            "canonical_content_sha256": prediction_content_sha256(predictions),
+        }
+    }
+    errors: list[str] = []
+    _validate_predictions(
+        predictions,
+        statuses,
+        {1, 2},
+        {3},
+        {4},
+        manifest,
+        hardened=True,
+        errors=errors,
+        warnings=[],
+    )
+    assert errors == []
+    unavailable_predictions, unavailable_statuses = _prediction_fixture(
+        e4_status="UNAVAILABLE_WITH_WARNING"
+    )
+    unavailable_manifest = {
+        "prediction_artifact": {
+            "row_count": len(unavailable_predictions),
+            "column_count": 3,
+            "canonical_content_sha256": prediction_content_sha256(unavailable_predictions),
+        }
+    }
+    errors = []
+    _validate_predictions(
+        unavailable_predictions,
+        unavailable_statuses,
+        {1, 2},
+        {3},
+        {4},
+        unavailable_manifest,
+        hardened=True,
+        errors=errors,
+        warnings=[],
+    )
+    assert errors == []
+    bad = predictions.iloc[:-1].copy()
+    errors = []
+    _validate_predictions(
+        bad,
+        statuses,
+        {1, 2},
+        {3},
+        {4},
+        manifest,
+        hardened=True,
+        errors=errors,
+        warnings=[],
+    )
+    assert any("membership" in error or "row count" in error for error in errors)
+    duplicate = pd.concat([predictions, predictions.iloc[[0]]], ignore_index=True)
+    errors = []
+    _validate_predictions(
+        duplicate,
+        statuses,
+        {1, 2},
+        {3},
+        {4},
+        manifest,
+        hardened=True,
+        errors=errors,
+        warnings=[],
+    )
+    assert any("duplicate" in error for error in errors)
+    test_row = predictions.copy()
+    test_row.loc[0, KEY] = 4
+    errors = []
+    _validate_predictions(
+        test_row,
+        statuses,
+        {1, 2},
+        {3},
+        {4},
+        manifest,
+        hardened=True,
+        errors=errors,
+        warnings=[],
+    )
+    assert any("TEST" in error for error in errors)
+
+
+def test_e4_success_requires_model_and_predictions(tmp_path: Path) -> None:
+    metrics, model_manifest = _inventory_fixture(tmp_path, e4_status="SUCCESS")
+    del model_manifest["models"]["E4"]
+    errors: list[str] = []
+    _validate_experiment_inventory(
+        metrics,
+        model_manifest,
+        tmp_path,
+        hardened=True,
+        errors=errors,
+        warnings=[],
+    )
+    assert any("model inventory" in error or "E4 model" in error for error in errors)
+    predictions, statuses = _prediction_fixture(e4_status="SUCCESS")
+    errors = []
+    _validate_predictions(
+        predictions.iloc[:-2],
+        statuses,
+        {1, 2},
+        {3},
+        {4},
+        {"prediction_artifact": {}},
+        hardened=True,
+        errors=errors,
+        warnings=[],
+    )
+    assert any("E4" in error for error in errors)
+
+
+def test_model_policy_rejects_active_class_weighting_and_parameter_drift() -> None:
+    valid = dict(MODEL_CORE_PARAMETERS)
+    assert model_policy_errors(valid) == []
+    active = {**valid, "auto_class_weights": "Balanced"}
+    assert any("active class weighting" in error for error in model_policy_errors(active))
+    changed = {**valid, "depth": 8}
+    assert any("depth" in error for error in model_policy_errors(changed))
+
+
+def test_runtime_provenance_is_complete_and_secret_free() -> None:
+    runtime = runtime_provenance()
+    assert set(runtime) >= {
+        "python_version",
+        "python_implementation",
+        "catboost_version",
+        "scikit_learn_version",
+        "pandas_version",
+        "numpy_version",
+        "pyarrow_version",
+        "platform",
+        "machine",
+        "os",
+    }
+    assert runtime_provenance_errors(runtime) == []
+    assert runtime_provenance_errors({"python_version": "3.14", "password": "secret"})
+
+
+def test_feature_hash_and_champion_mismatch_are_blocking(tmp_path: Path) -> None:
+    spec = FeatureSetSpec("E1", ("number",), ("number",), (), (), (), 1, 0, 0, 0, "hash")
+    persisted = {"E1": {**spec.as_dict(), "feature_set_sha256": "wrong"}}
+    schema = {
+        "E1": {
+            "ordered_features": ["number"],
+            "numeric": ["number"],
+            "categorical": [],
+            "boolean": [],
+            "text": [],
+        }
+    }
+    errors: list[str] = []
+    _validate_feature_sets(
+        persisted,
+        schema,
+        {"models": {}},
+        {"E1": spec},
+        hardened=True,
+        errors=errors,
+        warnings=[],
+    )
+    assert any("feature sets" in error for error in errors)
+    common = {"average_precision": 0.7, "roc_auc": 0.8, "log_loss": 0.2}
+    statuses = {
+        experiment_id: {"status": "SUCCESS", "model_type": "CatBoost", "metrics": dict(common)}
+        for experiment_id in ("E0", "E1", "E2", "E3", "E4")
+    }
+    errors = []
+    champion = _validate_champion(
+        tmp_path,
+        {"champion_experiment_id": "E4"},
+        {"champion_experiment_id": "E4"},
+        tmp_path / "missing-report.json",
+        {},
+        statuses,
+        hardened=True,
+        allow_report_pending=False,
+        errors=errors,
+        warnings=[],
+    )
+    assert champion == "E1"
+    assert any("champion" in error for error in errors)
+
+
+def _write_comparison_run(path: Path, run_id: str, *, drift: bool = False) -> None:
+    path.mkdir(parents=True)
+    target_hash = "target-after" if drift else "target"
+    (path / "experiment_manifest.json").write_text(
+        json.dumps(
+            {
+                "run_id": run_id,
+                "frozen_membership": {
+                    "counts": {"TRAIN": 2, "VALIDATION": 2, "TEST": 1 if not drift else 2}
+                },
+                "target_summary": {
+                    "train": {"target_content_sha256": target_hash},
+                    "validation": {"target_content_sha256": target_hash},
+                },
+                "champion_experiment_id": "E1",
+            }
+        ),
+        encoding="utf-8",
+    )
+    score = 0.8 if drift else 0.7
+    (path / "validation_metrics.json").write_text(
+        json.dumps(
+            {
+                "experiments": {
+                    "E0": {"status": "SUCCESS", "metrics": {"average_precision": 0.2}},
+                    "E1": {"status": "SUCCESS", "metrics": {"average_precision": score}},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    feature_hash = "feature-after" if drift else "feature"
+    (path / "feature_sets.json").write_text(
+        json.dumps({"E1": {"feature_count": 1, "feature_set_sha256": feature_hash}}),
+        encoding="utf-8",
+    )
+    predictions = pd.DataFrame(
+        {
+            KEY: [1, 2],
+            "experiment_id": ["E0", "E1"],
+            "probability": [0.2, 0.8 if not drift else 0.7],
+        }
+    )
+    predictions.to_parquet(path / "validation_predictions.parquet", index=False)
+    (path / "model_manifest.json").write_text(
+        json.dumps({"models": {"E1": {"model_sha256": "binary-after" if drift else "binary"}}}),
+        encoding="utf-8",
+    )
+
+
+def test_before_after_comparison_allows_model_binary_drift_but_blocks_semantic_drift(
+    tmp_path: Path,
+) -> None:
+    before = tmp_path / "before"
+    after = tmp_path / "after"
+    _write_comparison_run(before, "before")
+    _write_comparison_run(after, "after")
+    passed = compare_phase9_runs(before, after)
+    assert passed["valid"] is True
+    assert passed["model_binary_hashes_required_to_match"] is False
+    drifted = tmp_path / "drifted"
+    _write_comparison_run(drifted, "drifted", drift=True)
+    blocked = compare_phase9_runs(before, drifted)
+    assert blocked["valid"] is False
+    assert blocked["errors"]
+
+
+def test_manifest_hash_and_test_seal_guards_fail_closed(tmp_path: Path) -> None:
+    inputs = SimpleNamespace(
+        phase5_manifest={"artifact_content_fingerprints": {"claim_snapshot": "p5"}},
+        phase6_manifest={},
+        phase7_manifest={"artifact_content_sha256": {"structured_features": "p7"}},
+        phase8_manifest={"artifact_content_sha256": {"text_features": "p8"}},
+        frozen_membership={"split_assignment_sha256": "p6"},
+    )
+    errors: list[str] = []
+    _validate_input_hashes(
+        tmp_path,
+        {
+            "input_hashes": {
+                "phase5_claim_snapshot": "wrong",
+                "phase6_split_assignment": "p6",
+                "phase7_structured_features": "p7",
+                "phase8_text_features": "p8",
+            },
+            "artifact_file_sha256": {},
+        },
+        inputs,
+        hardened=True,
+        errors=errors,
+        warnings=[],
+    )
+    assert any("input hashes" in error for error in errors)
+    (tmp_path / "test_metrics.json").write_text("{}", encoding="utf-8")
+    errors = []
+    _validate_test_seal(
+        tmp_path,
+        {"test_target_rows_loaded": 1},
+        {"test_seal": {"test_target_rows_loaded": 0}},
+        errors,
+    )
+    assert any("TEST" in error for error in errors)
+
+
+def test_ap_lift_and_configuration_policy_are_recomputed() -> None:
+    statuses = {
+        "E0": {
+            "status": "SUCCESS",
+            "metrics": {"average_precision": 0.2, "ap_lift_over_prevalence_baseline": 1.0},
+        },
+        "E1": {
+            "status": "SUCCESS",
+            "metrics": {"average_precision": 0.4, "ap_lift_over_prevalence_baseline": 2.0},
+        },
+    }
+    errors: list[str] = []
+    _validate_ap_lift(statuses, hardened=True, errors=errors, warnings=[])
+    assert errors == []
+    statuses["E1"]["metrics"]["ap_lift_over_prevalence_baseline"] = 3.0
+    _validate_ap_lift(statuses, hardened=True, errors=errors, warnings=[])
+    assert any("AP lift" in error for error in errors)
+    zero_statuses = {
+        "E0": {
+            "status": "SUCCESS",
+            "metrics": {"average_precision": 0.0, "ap_lift_over_prevalence_baseline": None},
+        },
+        "E1": {
+            "status": "SUCCESS",
+            "metrics": {"average_precision": 0.0, "ap_lift_over_prevalence_baseline": None},
+        },
+    }
+    errors = []
+    _validate_ap_lift(zero_statuses, hardened=True, errors=errors, warnings=[])
+    assert errors == []
+    settings = load_baseline_settings(Path.cwd())
+    contract = {
+        "fixed_catboost_parameters": {"eval_set": "none", "early_stopping": "none"},
+        "class_imbalance_policy": {"class_weights": "none"},
+    }
+    errors = []
+    _validate_configuration_policy(settings, contract, errors)
+    assert errors == []
+    contract["fixed_catboost_parameters"]["eval_set"] = "validation"
+    _validate_configuration_policy(settings, contract, errors)
+    assert any("eval_set" in error for error in errors)
