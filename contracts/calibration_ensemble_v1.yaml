@@ -1,0 +1,21 @@
+phase13:
+  phase: 13
+  version: phase13_calibration_ensemble_v1
+  required_phase12_status: HARDENED_PASS
+  base_model_retraining: prohibited
+  feature_changes: prohibited
+  hyperparameter_retuning: prohibited
+  imbalance_reoptimization: prohibited
+  calibration_methods: [NONE, SIGMOID, ISOTONIC]
+  calibration_selection_target_access: TRAIN_ONLY
+  ensemble_type: CONVEX_PROBABILITY_BLEND
+  ensemble_weights: [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+  stacking: prohibited
+  meta_model: prohibited
+  threshold_selection: [TRAIN_CROSSFIT_ONLY, MCC_MAX]
+  outer_validation:
+    after_phase13_freeze_only: true
+    maximum_new_validation_score_sets: 3
+  test:
+    forbidden_until_phase: 15
+  experimental_configuration_sha256: 51e618eebf0aef87ba93731ff1be67038a632216e076de8eb7fa81012074ba9f

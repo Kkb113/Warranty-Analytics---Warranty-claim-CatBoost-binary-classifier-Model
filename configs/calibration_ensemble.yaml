@@ -1,0 +1,66 @@
+phase13_calibration_ensemble:
+  tracks: [T1, T3]
+  calibration:
+    methods: [C0_NONE, C1_SIGMOID, C2_ISOTONIC]
+    sigmoid:
+      epsilon: 0.000001
+      penalty: null
+      solver: lbfgs
+      max_iter: 1000
+      class_weight: null
+    isotonic:
+      y_min: 0.0
+      y_max: 1.0
+      out_of_bounds: clip
+      minimum_training_positives: 20
+      minimum_training_negatives: 100
+      minimum_unique_probabilities: 50
+    selection:
+      max_ap_drop: 0.001
+      max_min_fold_ap_drop: 0.005
+      max_roc_auc_drop: 0.005
+      none_log_loss_tolerance: 0.0005
+      none_brier_tolerance: 0.0002
+      selection_tie_tolerance: 0.000001
+  reliability:
+    bins: 10
+    method: deterministic_equal_frequency
+  ensemble:
+    t1_weights: [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+    ranking_route:
+      minimum_ap_improvement: 0.001
+      max_min_fold_ap_drop: 0.005
+      max_roc_auc_drop: 0.005
+    calibration_route:
+      max_ap_drop: 0.0005
+      max_min_fold_ap_drop: 0.005
+      max_roc_auc_drop: 0.005
+      minimum_log_loss_improvement: 0.002
+      minimum_brier_improvement: 0.0005
+  threshold:
+    start: 0.001
+    stop: 0.999
+    step: 0.001
+    objective: MCC
+    tie_tolerance: 1.0e-12
+  validation:
+    calibration_max_ap_drop: 0.0005
+    calibration_max_roc_auc_drop: 0.005
+    calibration_max_log_loss_regression: 0.0005
+    calibration_max_brier_regression: 0.0002
+    calibration_min_log_loss_improvement: 0.0005
+    calibration_min_brier_improvement: 0.0002
+    ensemble_ap_improvement_tolerance: 0.000001
+    ensemble_max_ap_drop_for_calibration_route: 0.0005
+    ensemble_max_roc_auc_drop: 0.005
+    ensemble_max_log_loss_regression: 0.003
+    ensemble_min_log_loss_improvement: 0.002
+    ensemble_min_brier_improvement: 0.0005
+  compute:
+    reserve_logical_threads: 2
+    preferred_calibration_workers: 4
+    preferred_catboost_replay_threads: 16
+  checkpoint_each_calibration_fold: true
+  resume_supported: true
+  output_directory: artifacts/calibration_ensemble
+  report_directory: reports/phase13_calibration_ensemble

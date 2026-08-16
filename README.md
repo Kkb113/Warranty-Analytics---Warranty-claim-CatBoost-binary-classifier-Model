@@ -7,7 +7,7 @@ unresolved business and availability questions are not inferred by code.
 
 ## Current status
 
-Current phase: **Phase 10 — CatBoost Optimization**.
+Current phase: **Phase 13 — Probability Calibration & Controlled Ensembling**.
 
 Phase 0 model-contract, Phase 1 scaffolding, Phase 2 read-only data access /
 schema validation, and the Phase 3 live profiling run are complete. The live
@@ -83,6 +83,10 @@ credentials or database exports.
     warranty-model phase10-plan-check --phase9-dir artifacts/baseline_models/20260811T_PHASE9_FINAL
     warranty-model phase10-optimize --phase9-dir artifacts/baseline_models/20260811T_PHASE9_FINAL --run-id 20260811T_PHASE10
     warranty-model phase10-validate --optimization-dir artifacts/catboost_optimization/20260811T_PHASE10
+    warranty-model phase13-contract-check
+    warranty-model phase13-plan-check --phase12-dir artifacts/imbalance_threshold/<accepted_run>
+    warranty-model phase13-calibrate --phase12-dir artifacts/imbalance_threshold/<accepted_run> --run-id <run_id>
+    warranty-model phase13-validate --phase13-dir artifacts/calibration_ensemble/<run_id> --json
 
 Phase 3 commands share the read-only extractor but select distinct task groups:
 `data-profile` runs profiling and target/category/missingness diagnostics,
@@ -154,6 +158,11 @@ after `study_freeze.json`; TEST targets, predictions, metrics, and hashes remain
 sealed until Phase 15. Phase 11 owns feature selection. See
 `docs/phase_10_catboost_optimization.md` for the contract and run sequence.
 
+Phase 13 consumes the accepted Phase 12 artifacts and evaluates TRAIN-only
+probability calibration, controlled convex blending, and frozen technical
+thresholds. It never retrains CatBoost or opens TEST. See
+`docs/phase_13_calibration_ensemble.md` for the exact gates and commands.
+
 ## Repository structure
 
 - `contracts/`: version-controlled schema contract and provenance notes.
@@ -211,6 +220,7 @@ by exact object name only; their contents are never read.
 - [Phase 8 text feature development](docs/phase_8_text_feature_development.md)
 - [Phase 9 baseline model training](docs/phase_9_baseline_model_training.md)
 - [Phase 10 CatBoost optimization](docs/phase_10_catboost_optimization.md)
+- [Phase 13 calibration and controlled ensembling](docs/phase_13_calibration_ensemble.md)
 - [Schema contract notes](contracts/README.md)
 - [Phase 1 scaffolding record](docs/phase_1_scaffolding.md)
 - [Contributing guide](CONTRIBUTING.md)

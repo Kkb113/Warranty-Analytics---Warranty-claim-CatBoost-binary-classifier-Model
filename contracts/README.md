@@ -129,3 +129,9 @@ Phase 12 adds `imbalance_threshold_v1.yaml` and
 TRAIN-derived threshold selection, outer-validation timing, and the TEST seal.
 Validate it with `warranty-model phase12-contract-check`.
 
+Phase 13 adds `calibration_ensemble_v1.yaml` and
+`configs/calibration_ensemble.yaml`. It locks the exact NONE/sigmoid/isotonic
+calibrators, TRAIN-only cross-fitting, eleven convex blend weights, calibrated
+MCC threshold policy, post-freeze validation gate, and TEST seal. Validate it
+with `warranty-model phase13-contract-check`.
+

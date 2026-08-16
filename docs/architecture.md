@@ -167,6 +167,13 @@ settings.
 - Phase 12: weighting-only imbalance experiments and TRAIN-derived raw-score
   threshold policy on the accepted Phase 11 effective parents. Validation is
   opened only after the Phase 12 freeze and TEST remains sealed.
+- Phase 13: TRAIN-cross-fitted probability calibration, deterministic convex
+  T1/T3 blending, and frozen calibrated thresholds on the accepted Phase 12
+  scores. Validation opens only after the Phase 13 freeze; no CatBoost
+  retraining, feature changes, or TEST access is permitted. Calibration fits
+  use bounded one-native-thread workers and resumable atomic checkpoints. The
+  independent validator rebuilds outer acceptance/fallback and rejects any
+  RAW/CALIBRATED hybrid ensemble or configuration/provenance drift.
 - Later phases: evaluation, calibration, inference, and monitoring.
 
 These boundaries preserve the Phase 0 contract and prevent infrastructure work

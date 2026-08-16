@@ -438,6 +438,48 @@ def build_parser() -> argparse.ArgumentParser:
         "--phase12-dir", type=Path, required=True, help="Phase 12 run directory."
     )
     phase12_validate.add_argument("--json", action="store_true", help="Print validation JSON.")
+    subparsers.add_parser(
+        "phase13-contract-check",
+        help="Validate the Phase 13 calibration and controlled-ensemble contract offline.",
+    )
+    phase13_plan = subparsers.add_parser(
+        "phase13-plan-check",
+        help="Validate the accepted Phase 12 parent and Phase 13 CPU plan.",
+    )
+    phase13_plan.add_argument(
+        "--phase12-dir", type=Path, required=True, help="Accepted Phase 12 run directory."
+    )
+    phase13_plan.add_argument("--max-workers", type=int, help="Calibration workers override.")
+    phase13_plan.add_argument(
+        "--catboost-replay-threads", type=int, help="CatBoost replay threads override."
+    )
+    phase13_plan.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
+    phase13_calibrate = subparsers.add_parser(
+        "phase13-calibrate",
+        help="Run Phase 13 TRAIN calibration, controlled ensembling, and post-freeze validation.",
+    )
+    phase13_calibrate.add_argument(
+        "--phase12-dir", type=Path, required=True, help="Accepted Phase 12 run directory."
+    )
+    phase13_calibrate.add_argument(
+        "--output-dir", type=Path, help="Phase 13 artifact root override."
+    )
+    phase13_calibrate.add_argument("--report-dir", type=Path, help="Phase 13 report root override.")
+    phase13_calibrate.add_argument("--run-id", help="Explicit immutable Phase 13 run identifier.")
+    phase13_calibrate.add_argument(
+        "--resume", action="store_true", help="Resume an unpublished work bundle."
+    )
+    phase13_calibrate.add_argument("--max-workers", type=int, help="Calibration workers override.")
+    phase13_calibrate.add_argument(
+        "--catboost-replay-threads", type=int, help="CatBoost replay threads override."
+    )
+    phase13_validate = subparsers.add_parser(
+        "phase13-validate", help="Independently validate a completed Phase 13 run."
+    )
+    phase13_validate.add_argument(
+        "--phase13-dir", type=Path, required=True, help="Phase 13 run directory."
+    )
+    phase13_validate.add_argument("--json", action="store_true", help="Print validation JSON.")
     return parser
 
 
@@ -1608,6 +1650,99 @@ def _run_phase12_validate(arguments: argparse.Namespace) -> int:
     return 0 if result.get("valid") else 1
 
 
+def _run_phase13_contract_check() -> int:
+    try:
+        from .calibration_ensemble.runner import phase13_contract_check
+
+        result = phase13_contract_check()
+    except Exception as exc:
+        print(f"Phase 13 contract check BLOCKED: {exc}", file=sys.stderr)
+        return 1
+    print(f"Phase 13 contract check: {result.get('status', 'BLOCKED')}")
+    print(f"Contract version: {result.get('contract_version', '-')}")
+    print(f"Contract SHA-256: {result.get('contract_checksum', '-')}")
+    for error in result.get("errors", []):
+        print(f"ERROR: {error}")
+    for warning in result.get("warnings", []):
+        print(f"WARNING: {warning}")
+    return 0 if result.get("valid") else 1
+
+
+def _run_phase13_plan_check(arguments: argparse.Namespace) -> int:
+    try:
+        from .calibration_ensemble.runner import phase13_plan_check
+
+        result = phase13_plan_check(
+            arguments.phase12_dir,
+            max_workers=arguments.max_workers,
+            catboost_replay_threads=arguments.catboost_replay_threads,
+        )
+    except Exception as exc:
+        print(f"Phase 13 plan check BLOCKED: {exc}", file=sys.stderr)
+        return 1
+    if arguments.json:
+        print(json.dumps(result, sort_keys=True, default=str))
+    else:
+        print(f"Phase 13 plan check: {'PASS' if result.get('valid') else 'BLOCKED'}")
+        plan = result.get("compute_plan", {})
+        if plan:
+            print(f"Detected logical CPUs: {plan.get('detected_logical_processors')}")
+            print(f"Reserved logical CPUs: {plan.get('reserved_logical_processors')}")
+            print(f"Effective CPU budget: {plan.get('effective_cpu_budget')}")
+            print(f"Calibration workers: {plan.get('calibration_worker_count')}")
+            print(f"Threads per calibration worker: {plan.get('threads_per_calibration_worker')}")
+            print(f"CatBoost replay threads: {plan.get('catboost_replay_threads')}")
+        for error in result.get("errors", []):
+            print(f"ERROR: {error}")
+    return 0 if result.get("valid") else 1
+
+
+def _run_phase13_calibrate(arguments: argparse.Namespace) -> int:
+    try:
+        from .calibration_ensemble.runner import build_phase13
+
+        result = build_phase13(
+            arguments.phase12_dir,
+            output_dir=arguments.output_dir,
+            report_dir=arguments.report_dir,
+            run_id=arguments.run_id,
+            resume=arguments.resume,
+            max_workers=arguments.max_workers,
+            catboost_replay_threads=arguments.catboost_replay_threads,
+        )
+    except Exception as exc:
+        print(f"Phase 13 calibration BLOCKED: {exc}", file=sys.stderr)
+        return 1
+    print(f"Phase 13 status: {result.get('validation', {}).get('hardening_status', 'BLOCKED')}")
+    print(f"Run directory: {result.get('phase13_dir', '-')}")
+    print(f"Development champion: {result.get('phase13_development_champion', '-')}")
+    print(f"Ensemble policy: {result.get('selected_ensemble_policy', '-')}")
+    for track, method in result.get("selected_calibration", {}).items():
+        print(f"{track} calibration: {method}")
+    for warning in result.get("warnings", []):
+        print(f"WARNING: {warning}")
+    return 0 if result.get("validation", {}).get("valid") else 1
+
+
+def _run_phase13_validate(arguments: argparse.Namespace) -> int:
+    try:
+        from .calibration_ensemble.validation import validate_existing_phase13
+
+        result = validate_existing_phase13(arguments.phase13_dir)
+    except Exception as exc:
+        print(f"Phase 13 validation BLOCKED: {exc}", file=sys.stderr)
+        return 1
+    if arguments.json:
+        print(json.dumps(result, sort_keys=True, default=str))
+    else:
+        print(f"Phase 13 validation: {result.get('hardening_status', 'BLOCKED')}")
+        for error in result.get("errors", []):
+            print(f"ERROR: {error}")
+        for warning in result.get("warnings", []):
+            print(f"WARNING: {warning}")
+    return 0 if result.get("valid") else 1
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run one supported CLI command."""
 
@@ -1695,6 +1830,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_phase12_optimize(arguments)
     if arguments.command == "phase12-validate":
         return _run_phase12_validate(arguments)
+    if arguments.command == "phase13-contract-check":
+        return _run_phase13_contract_check()
+    if arguments.command == "phase13-plan-check":
+        return _run_phase13_plan_check(arguments)
+    if arguments.command == "phase13-calibrate":
+        return _run_phase13_calibrate(arguments)
+    if arguments.command == "phase13-validate":
+        return _run_phase13_validate(arguments)
     if arguments.command in {"data-profile", "synthetic-audit", "data-quality-check", "phase3-run"}:
         return _run_phase3(arguments)
     parser.error(f"Unsupported command: {arguments.command}")
