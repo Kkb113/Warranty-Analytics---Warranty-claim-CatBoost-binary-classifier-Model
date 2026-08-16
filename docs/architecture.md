@@ -39,6 +39,9 @@ serves inference.
 - catboost_optimization/: Phase 10 immutable E1/E3 track optimization,
   TRAIN-only chronological inner folds, sequential Optuna studies, finalist
   fitting, manifests, reports, and standalone validation.
+- feature_selection/: Phase 11 family ablation, fold-stable importance,
+  deterministic candidate subsets, checkpointed TRAIN-only selection, and
+  post-freeze outer-VALIDATION replacement evaluation.
 - models/: Phase 5 and later boundary for training and model artifacts.
 - evaluation/: Phase 5 and later boundary for metrics and calibration.
 - inference/: Phase 5 and later boundary for inference; no inference exists in
@@ -153,6 +156,14 @@ settings.
   VALIDATION is opened only after the study freeze and only for two finalists.
   Phase 9 remains permanently locked, TEST remains sealed until Phase 15, and
   Phase 11 owns feature selection.
+- Phase 11: feature-family ablation and deterministic feature-subset selection
+  on the locked Phase 10 parents. Importance uses labeled inner-validation
+  pools, candidates are evaluated on the frozen Phase 10 inner folds, and the
+  selected subset is frozen before at most two outer-VALIDATION models run.
+  Feature addition, hyperparameter retuning, class weighting, resampling,
+  early stopping, calibration, threshold tuning, ensembling, and TEST access
+  are prohibited. Every fold is checkpointed atomically and can be resumed
+  only when its experiment, feature, and parameter hashes still match.
 - Later phases: evaluation, calibration, inference, and monitoring.
 
 These boundaries preserve the Phase 0 contract and prevent infrastructure work
@@ -165,3 +176,10 @@ allowed for exploration and temporary investigation but are not the only
 implementation of reusable workflows. Source code is separate from generated
 data, model artifacts, reports, and logs; generated contents are ignored by
 default while README files document their purpose.
+
+Phase 11 generated artifacts live under
+`artifacts/feature_selection/<run_id>/` and reports under
+`reports/phase11_feature_selection/<run_id>/`. The committed contract and
+configuration are the source of truth; generated outputs are local evidence
+and are intentionally excluded from version control.
+

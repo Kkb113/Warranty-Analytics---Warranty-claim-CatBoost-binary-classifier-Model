@@ -342,6 +342,61 @@ def build_parser() -> argparse.ArgumentParser:
     phase10_validate.add_argument(
         "--optimization-dir", type=Path, required=True, help="Phase 10 optimization run directory."
     )
+    subparsers.add_parser(
+        "phase11-contract-check",
+        help="Validate the Phase 11 feature-selection contract and configuration offline.",
+    )
+    phase11_plan = subparsers.add_parser(
+        "phase11-plan-check",
+        help="Validate locked Phase 9/10 inputs, TEST seals, and the exact Phase 10 inner folds.",
+    )
+    phase11_plan.add_argument(
+        "--phase10-dir", type=Path, required=True, help="Locked Phase 10 run directory."
+    )
+    phase11_plan.add_argument(
+        "--max-workers", type=int, help="Bounded Phase 11 experiment workers."
+    )
+    phase11_plan.add_argument(
+        "--threads-per-fit", type=int, help="CatBoost threads per concurrent experiment."
+    )
+    phase11_plan.add_argument(
+        "--single-fit-threads", type=int, help="CatBoost threads for selected final fits."
+    )
+    phase11_select = subparsers.add_parser(
+        "phase11-select",
+        help="Run the TRAIN-only Phase 11 feature-selection experiment and controlled validation.",
+    )
+    phase11_select.add_argument(
+        "--phase10-dir", type=Path, required=True, help="Locked Phase 10 run directory."
+    )
+    phase11_select.add_argument("--output-dir", type=Path, help="Phase 11 artifact root override.")
+    phase11_select.add_argument("--report-dir", type=Path, help="Phase 11 report root override.")
+    phase11_select.add_argument("--run-id", help="Explicit immutable Phase 11 run identifier.")
+    phase11_select.add_argument(
+        "--resume", action="store_true", help="Resume valid per-fold checkpoints."
+    )
+    phase11_select.add_argument(
+        "--overwrite", action="store_true", help="Replace the named local run."
+    )
+    phase11_select.add_argument(
+        "--max-workers", type=int, help="Bounded Phase 11 experiment workers."
+    )
+    phase11_select.add_argument(
+        "--threads-per-fit", type=int, help="CatBoost threads per concurrent experiment."
+    )
+    phase11_select.add_argument(
+        "--single-fit-threads", type=int, help="CatBoost threads for selected final fits."
+    )
+    phase11_validate = subparsers.add_parser(
+        "phase11-validate",
+        help="Validate a completed Phase 11 feature-selection run offline.",
+    )
+    phase11_validate.add_argument(
+        "--selection-dir", type=Path, required=True, help="Phase 11 selection run directory."
+    )
+    phase11_validate.add_argument(
+        "--json", action="store_true", help="Print machine-readable validation JSON."
+    )
     return parser
 
 
@@ -1313,6 +1368,105 @@ def _run_phase10_validate(arguments: argparse.Namespace) -> int:
     return 0 if result.get("valid") else 1
 
 
+def _run_phase11_contract_check() -> int:
+    try:
+        from .feature_selection.contract import validate_feature_selection_contract
+
+        result = validate_feature_selection_contract()
+    except Exception as exc:
+        print(f"Phase 11 contract check BLOCKED: {exc}", file=sys.stderr)
+        return 1
+    print(f"Phase 11 contract check: {result.get('status', 'BLOCKED')}")
+    print(f"Contract version: {result.get('contract_version', '-')}")
+    print(f"Contract SHA-256: {result.get('contract_checksum', '-')}")
+    for error in result.get("errors", []):
+        print(f"ERROR: {error}")
+    for warning in result.get("warnings", []):
+        print(f"WARNING: {warning}")
+    return 0 if result.get("valid") else 1
+
+
+def _run_phase11_plan_check(arguments: argparse.Namespace) -> int:
+    try:
+        from .feature_selection.runner import phase11_plan_check
+
+        result = phase11_plan_check(
+            arguments.phase10_dir,
+            max_workers=arguments.max_workers,
+            threads_per_fit=arguments.threads_per_fit,
+            single_fit_threads=arguments.single_fit_threads,
+        )
+    except Exception as exc:
+        print(f"Phase 11 plan check BLOCKED: {exc}", file=sys.stderr)
+        return 1
+    print(f"Phase 11 plan check: {result.get('status', 'BLOCKED')}")
+    compute = result.get("compute_plan")
+    if compute is not None:
+        print(f"Detected logical processors: {compute.detected_logical_processors}")
+        print(f"Reserved logical processors: {compute.reserved_logical_processors}")
+        print(f"Effective CPU budget: {compute.effective_cpu_budget}")
+        print(f"Worker count: {compute.worker_count}")
+        print(f"Threads per CatBoost fit: {compute.threads_per_worker}")
+        print(f"Maximum concurrent CatBoost threads: {compute.maximum_concurrent_threads}")
+    folds = result.get("inner_fold_plan")
+    if folds is not None:
+        print(f"Inner folds: {len(folds.folds)}; hash: {folds.content_sha256}")
+    for error in result.get("errors", []):
+        print(f"ERROR: {error}")
+    return 0 if result.get("valid") else 1
+
+
+def _run_phase11_select(arguments: argparse.Namespace) -> int:
+    try:
+        from .feature_selection.runner import build_phase11
+
+        result = build_phase11(
+            arguments.phase10_dir,
+            output_dir=arguments.output_dir,
+            report_dir=arguments.report_dir,
+            run_id=arguments.run_id,
+            overwrite=arguments.overwrite,
+            resume=arguments.resume,
+            max_workers=arguments.max_workers,
+            threads_per_fit=arguments.threads_per_fit,
+            single_fit_threads=arguments.single_fit_threads,
+        )
+    except Exception as exc:
+        print(f"Phase 11 selection BLOCKED: {exc}", file=sys.stderr)
+        return 1
+    print(f"Phase 11 status: {result.get('status', 'BLOCKED')}")
+    print(f"Selection run directory: {result.get('run_directory', '-')}")
+    print(f"Development champion: {result.get('phase11_development_champion', '-')}")
+    print(f"Report directory: {result.get('report_directory', '-')}")
+    compute = result.get("compute_plan", {})
+    if compute:
+        print(
+            f"CPU plan: {compute.get('worker_count')} workers x {compute.get('threads_per_worker')} threads"
+        )
+    for warning in result.get("validation", {}).get("warnings", []):
+        print(f"WARNING: {warning}")
+    return 0 if result.get("status") in {"PASS", "PASS WITH WARNINGS"} else 1
+
+
+def _run_phase11_validate(arguments: argparse.Namespace) -> int:
+    try:
+        from .feature_selection.runner import validate_existing_selection
+
+        result = validate_existing_selection(arguments.selection_dir)
+    except Exception as exc:
+        print(f"Phase 11 validation BLOCKED: {exc}", file=sys.stderr)
+        return 1
+    if arguments.json:
+        print(json.dumps(result, sort_keys=True))
+    else:
+        print(f"Phase 11 validation: {result.get('status', 'BLOCKED')}")
+        for error in result.get("errors", []):
+            print(f"ERROR: {error}")
+        for warning in result.get("warnings", []):
+            print(f"WARNING: {warning}")
+    return 0 if result.get("valid") else 1
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run one supported CLI command."""
 
@@ -1384,7 +1538,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_phase10_optimize(arguments)
     if arguments.command == "phase10-validate":
         return _run_phase10_validate(arguments)
+    if arguments.command == "phase11-contract-check":
+        return _run_phase11_contract_check()
+    if arguments.command == "phase11-plan-check":
+        return _run_phase11_plan_check(arguments)
+    if arguments.command == "phase11-select":
+        return _run_phase11_select(arguments)
+    if arguments.command == "phase11-validate":
+        return _run_phase11_validate(arguments)
     if arguments.command in {"data-profile", "synthetic-audit", "data-quality-check", "phase3-run"}:
         return _run_phase3(arguments)
     parser.error(f"Unsupported command: {arguments.command}")
     return 2
+

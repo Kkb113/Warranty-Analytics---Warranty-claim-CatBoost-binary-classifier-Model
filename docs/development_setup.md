@@ -85,6 +85,10 @@ output into tickets or logs if local environment metadata is sensitive.
     python -m warranty_analytics_model phase10-plan-check --phase9-dir artifacts/baseline_models/20260811T_PHASE9_FINAL
     python -m warranty_analytics_model phase10-optimize --phase9-dir artifacts/baseline_models/20260811T_PHASE9_FINAL --run-id 20260811T_PHASE10
     python -m warranty_analytics_model phase10-validate --optimization-dir artifacts/catboost_optimization/20260811T_PHASE10
+    python -m warranty_analytics_model phase11-contract-check
+    python -m warranty_analytics_model phase11-plan-check --phase10-dir artifacts/catboost_optimization/20260811T_PHASE10
+    python -m warranty_analytics_model phase11-select --phase10-dir artifacts/catboost_optimization/20260811T_PHASE10 --run-id <run_id>
+    python -m warranty_analytics_model phase11-validate --selection-dir artifacts/feature_selection/<run_id>
     python -m ruff check .
     python -m ruff format --check .
     python -m mypy src
@@ -173,3 +177,13 @@ TRAIN-only, date-grouped expanding inner folds. Outer VALIDATION labels are
 blocked until the study freeze, and only two frozen finalists may score
 VALIDATION. TEST targets, predictions, metrics, and hashes remain sealed until
 Phase 15. Phase 11 owns feature selection.
+
+Phase 11 extends the workflow with deterministic feature selection and ablation.
+Run the contract and plan checks first, then `phase11-select` against the exact
+locked Phase 10 directory. The command uses bounded CPU concurrency, writes an
+atomic checkpoint after every inner fold, and resumes only hash-matching
+checkpoints. Importance and candidate scoring use TRAIN-only data and the
+frozen Phase 10 inner folds. Outer VALIDATION is opened only after the
+selection freeze, and TEST labels remain unavailable. Run `phase11-validate`
+before consuming any Phase 11 model or report.
+

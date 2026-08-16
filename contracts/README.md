@@ -116,3 +116,11 @@ the policy offline with:
 Phase 10 artifacts and aggregate reports remain local ignored outputs under
 `artifacts/catboost_optimization/` and
 `reports/phase10_catboost_optimization/`.
+
+## Phase 11
+
+`feature_selection_ablation_v1.yaml` locks the Phase 11 TRAIN-only feature
+selection and ablation protocol. Use `warranty-model phase11-contract-check`
+before a run and `phase11-validate` after publication. Outer VALIDATION is
+opened only after `selection_freeze.json`; TEST is forbidden until Phase 15.
+

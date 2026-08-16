@@ -1,0 +1,35 @@
+phase11_feature_selection:
+  tracks: [T1, T3]
+  primary_metric: mean_average_precision
+  feature_importance:
+    loss_function_change: true
+    shap_mean_absolute: true
+    fold_stability_required: true
+  candidate_fractions: [1.00, 0.85, 0.70, 0.55, 0.40, 0.25]
+  minimum_feature_count: 32
+  maximum_candidate_subsets_per_track: 8
+  simpler_candidate_selection:
+    enabled: true
+    maximum_ap_tolerance: 0.0025
+    maximum_min_ap_drop: 0.005
+    maximum_roc_auc_drop: 0.010
+    maximum_log_loss_increase: 0.010
+  outer_validation_replacement:
+    ap_improvement_tolerance: 0.000001
+    complexity_tradeoff:
+      allowed: true
+      maximum_ap_drop: 0.0005
+      minimum_feature_reduction_fraction: 0.20
+      maximum_roc_auc_drop: 0.005
+      maximum_log_loss_increase: 0.003
+  compute:
+    high_performance_local: true
+    preferred_max_workers: 2
+    preferred_threads_per_worker: 10
+    preferred_single_fit_threads: 16
+    reserve_logical_threads: 2
+  checkpoint_each_fold: true
+  resume_supported: true
+  output_directory: artifacts/feature_selection
+  report_directory: reports/phase11_feature_selection
+
