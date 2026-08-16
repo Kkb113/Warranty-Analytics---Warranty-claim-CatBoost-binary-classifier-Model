@@ -220,7 +220,7 @@ def _resolve_parent_source(
     upstream: dict[str, Any],
     phase10_model_manifest: dict[str, Any],
     root: Path,
-) -> tuple[Path, dict[str, Any], dict[str, Any], str]:  # pragma: no cover
+) -> tuple[Path, dict[str, Any], dict[str, Any], dict[str, Any], str]:  # pragma: no cover
     """Resolve the permitted parent and reconstruct its parameters from source truth."""
 
     experiment = TRACK_TO_EXPERIMENT[track]
@@ -244,7 +244,7 @@ def _resolve_parent_source(
             raise FeatureSelectionError(
                 f"{track} Phase 10 parameter hash differs from source truth."
             )
-        return source_dir, source_entry, expected, str(parameter_hash)
+        return source_dir, source_entry, expected, dict(expected), str(parameter_hash)
     if parent_id == f"P9_{experiment}_BASELINE":
         source_dir = upstream["phase9_dir"]
         source_manifest = _read_json(source_dir / "model_manifest.json")
@@ -253,15 +253,17 @@ def _resolve_parent_source(
         if not isinstance(source_entry, dict) or not source_entry:
             raise FeatureSelectionError(f"{track} locked Phase 9 parent model is missing.")
         baseline = load_baseline_settings(root)
-        expected = {str(key): value for key, value in baseline.catboost_parameters.items()}
+        manifest_expected = {str(key): value for key, value in baseline.catboost_parameters.items()}
         # These are CatBoost CPU defaults when they are intentionally absent from
         # the Phase 9 baseline configuration, but they are present in get_all_params().
-        expected.setdefault("border_count", 254)
-        expected.setdefault("rsm", 1.0)
+        actual_model_expected = dict(manifest_expected)
+        actual_model_expected.setdefault("border_count", 254)
+        actual_model_expected.setdefault("rsm", 1.0)
         return (
             source_dir,
             source_entry,
-            expected,
+            manifest_expected,
+            actual_model_expected,
             canonical_json_sha256(baseline.catboost_parameters),
         )
     raise FeatureSelectionError(f"{track} effective parent is not permitted: {parent_id}.")
@@ -650,15 +652,19 @@ def validate_selection_directory(  # pragma: no cover
             if not parent_entry or not selected_entry:
                 raise FeatureSelectionError(f"{track} model manifest entry is missing.")
             parent_id = str(parent_entry.get("effective_parent_candidate_id"))
-            source_dir, source_entry, expected_parent, expected_parameter_hash = (
-                _resolve_parent_source(track, parent_id, upstream, phase10_model_manifest, root)
-            )
+            (
+                source_dir,
+                source_entry,
+                manifest_expected_parent,
+                actual_model_expected_parent,
+                expected_parameter_hash,
+            ) = _resolve_parent_source(track, parent_id, upstream, phase10_model_manifest, root)
             if parent_entry.get("parent_parameter_sha256") != expected_parameter_hash:
                 raise FeatureSelectionError(
                     f"{track} parent parameter hash drifted from source truth."
                 )
             _validate_frozen_parameters(
-                selected_entry, parent_entry, expected_parent, track, errors
+                selected_entry, parent_entry, manifest_expected_parent, track, errors
             )
             selected_model_file = _artifact_path(directory, selected_entry.get("model_file"))
             if not selected_model_file.is_file() or sha256_file(
@@ -688,7 +694,10 @@ def validate_selection_directory(  # pragma: no cover
             parent_model = CatBoostClassifier()
             parent_model.load_model(str(parent_model_file), format="cbm")
             _validate_actual_model_parameters(
-                effective_parameters(parent_model), expected_parent, f"{track} parent model", errors
+                effective_parameters(parent_model),
+                actual_model_expected_parent,
+                f"{track} parent model",
+                errors,
             )
             del parent_model
 
@@ -696,7 +705,7 @@ def validate_selection_directory(  # pragma: no cover
             selected_model.load_model(str(selected_model_file), format="cbm")
             _validate_actual_model_parameters(
                 effective_parameters(selected_model),
-                expected_parent,
+                actual_model_expected_parent,
                 f"{track} selected model",
                 errors,
             )

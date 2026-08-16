@@ -333,6 +333,7 @@ def test_phase11_parent_source_resolves_phase10_and_phase9_keys(
                 "random_strength": 1.0,
                 "bootstrap_type": "Bayesian",
                 "bagging_temperature": 1.0,
+                "random_seed": 20260810,
                 "task_type": "CPU",
                 "thread_count": 1,
                 "allow_writing_files": False,
@@ -342,23 +343,50 @@ def test_phase11_parent_source_resolves_phase10_and_phase9_keys(
         ),
     )
 
-    _, source, expected, parameter_hash = phase11_validation._resolve_parent_source(
-        "T1", "P9_E1_BASELINE", upstream, phase10_manifest, tmp_path
+    _, source, manifest_expected, actual_model_expected, parameter_hash = (
+        phase11_validation._resolve_parent_source(
+            "T1", "P9_E1_BASELINE", upstream, phase10_manifest, tmp_path
+        )
     )
     assert source == p9_entry
     assert parameter_hash == phase11_validation.canonical_json_sha256(
         phase11_validation.load_baseline_settings(tmp_path).catboost_parameters
     )
-    assert expected["border_count"] == 254
-    assert expected["rsm"] == 1.0
+    assert "border_count" not in manifest_expected
+    assert "rsm" not in manifest_expected
+    assert actual_model_expected["border_count"] == 254
+    assert actual_model_expected["rsm"] == 1.0
+    p9_manifest_entry = {
+        "statistical_parameters": {
+            key: value for key, value in manifest_expected.items() if key != "thread_count"
+        }
+    }
+    errors: list[str] = []
+    phase11_validation._validate_frozen_parameters(
+        p9_manifest_entry,
+        p9_manifest_entry,
+        manifest_expected,
+        "T1",
+        errors,
+    )
+    phase11_validation._validate_actual_model_parameters(
+        actual_model_expected,
+        actual_model_expected,
+        "T1 parent model",
+        errors,
+    )
+    assert errors == []
 
-    source_dir, source, expected, parameter_hash = phase11_validation._resolve_parent_source(
-        "T1", "P10_T1_E1_OPTIMIZED", upstream, phase10_manifest, tmp_path
+    source_dir, source, manifest_expected, actual_model_expected, parameter_hash = (
+        phase11_validation._resolve_parent_source(
+            "T1", "P10_T1_E1_OPTIMIZED", upstream, phase10_manifest, tmp_path
+        )
     )
     assert source_dir == phase10_dir
     assert source == p10_entry
     assert parameter_hash == "p10-params"
-    assert expected["depth"] == 9
+    assert manifest_expected["depth"] == 9
+    assert actual_model_expected == manifest_expected
 
 
 def test_checkpoint_round_trip_and_stale_rejection(tmp_path: Path) -> None:
