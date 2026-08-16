@@ -46,6 +46,7 @@ from .reporting import write_phase13_reports
 from .selection import (
     accept_ensemble,
     accept_track_calibration,
+    select_best_single_candidate,
     select_calibration_method,
     select_ensemble,
     select_phase13_champion,
@@ -763,7 +764,12 @@ def _validation_stage(
         )
         selected_threshold = float(thresholds["policy"]["candidates"][track]["threshold"])
         calibrated_metrics.update(threshold_metrics(y, calibrated, selected_threshold))
-        calibration_acceptance = accept_track_calibration(raw_metrics, calibrated_metrics, settings)
+        calibration_acceptance = accept_track_calibration(
+            raw_metrics,
+            calibrated_metrics,
+            settings,
+            calibration_method=str(final_calibrators[track].get("method", "NONE")),
+        )
         accepted = bool(calibration_acceptance.get("accepted"))
         if not accepted and final_calibrators[track].get("method") != "NONE":
             warnings.append("CALIBRATION_REJECTED_ON_VALIDATION")
@@ -832,13 +838,7 @@ def _validation_stage(
 
         selected_threshold = float(thresholds["policy"]["candidates"]["ENSEMBLE"]["threshold"])
         metrics.update(threshold_metrics(y, p, selected_threshold))
-        best_single = sorted(
-            effective_single_rows,
-            key=lambda item: (
-                -float(item["validation_metrics"]["average_precision"]),
-                str(item["candidate_id"]),
-            ),
-        )[0]
+        best_single = select_best_single_candidate(effective_single_rows, settings)
         component_rejections = [
             track
             for track in TRACKS

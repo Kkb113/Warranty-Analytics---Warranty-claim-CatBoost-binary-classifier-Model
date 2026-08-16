@@ -69,6 +69,7 @@ from warranty_analytics_model.calibration_ensemble.selection import (
     accept_ensemble,
     accept_track_calibration,
     compare_champion_candidates,
+    select_best_single_candidate,
     select_ensemble,
     select_phase13_champion,
 )
@@ -593,7 +594,7 @@ def test_validation_stage_replays_frozen_models_and_fails_closed(
     monkeypatch.setattr(
         phase13_runner,
         "accept_track_calibration",
-        lambda _raw, _calibrated, _settings: {
+        lambda _raw, _calibrated, _settings, *, calibration_method: {
             "accepted": False,
             "reason": "CALIBRATION_REJECTED_ON_VALIDATION",
             "effective": "RAW_PHASE12",
@@ -628,6 +629,67 @@ def test_validation_stage_replays_frozen_models_and_fails_closed(
     assert result["ensemble_acceptance"]["reason"] == "COMPONENT_CALIBRATION_REJECTED"
     assert len(result["predictions"]) == 60
     assert (tmp_path / "validation_metrics.json").is_file()
+
+
+def test_validation_stage_accepts_explicit_non_none_calibration_method(
+    monkeypatch, tmp_path: Path
+) -> None:
+    settings = load_calibration_ensemble_settings()
+    keys = np.arange(1, 31)
+    raw = np.clip(keys / 35.0, 0.01, 0.99)
+    targets = (keys % 5 == 0).astype("int8")
+    validation_frame = pd.DataFrame({"warranty_claim_key": keys, "split": "VALIDATION"})
+    validation_targets = pd.DataFrame(
+        {"warranty_claim_key": keys, "target__high_cost_claim_flag": targets}
+    )
+    phase10 = SimpleNamespace(
+        development=validation_frame,
+        feature_sets={"E1": object(), "E3": object()},
+    )
+    lock = SimpleNamespace(
+        root=tmp_path,
+        phase12_dir=tmp_path,
+        phase12_inputs=SimpleNamespace(phase10_inputs=phase10),
+        effective_models={
+            track: {
+                "model_file": f"{track.lower()}.cbm",
+                "technical_threshold": "0.5",
+                "candidate_id": f"P10_{track}",
+                "feature_count": 3,
+            }
+            for track in ("T1", "T3")
+        },
+    )
+    monkeypatch.setattr(
+        phase13_runner,
+        "load_validation_targets_after_freeze",
+        lambda _phase10, study_frozen: (
+            validation_targets,
+            {"target_rows": len(validation_targets)},
+        ),
+    )
+    monkeypatch.setattr(phase13_runner, "load_baseline_settings", lambda _root: object())
+    monkeypatch.setattr(phase13_runner, "adapt_matrix", lambda frame, _features, _settings: frame)
+    monkeypatch.setattr(phase13_runner, "load_model", lambda _path: object())
+    monkeypatch.setattr(
+        phase13_runner,
+        "predict_probabilities",
+        lambda _model, _matrix, _features: raw,
+    )
+    calibrator = fit_calibrator("C1_SIGMOID", raw, targets)
+    result = _validation_stage(
+        lock,
+        settings,
+        selected={},
+        final_calibrators={"T1": calibrator, "T3": calibrator},
+        calibration={},
+        ensemble={"selection": {"selected_policy": "BEST_SINGLE", "selected_weight": 0.0}},
+        thresholds={"policy": {"candidates": {"T1": {"threshold": 0.5}, "T3": {"threshold": 0.5}}}},
+        work_dir=tmp_path,
+    )
+    assert result["track_meta"]["T1"]["accepted"] is True
+    assert result["track_meta"]["T1"]["score_space"] == "CALIBRATED_PROBABILITY"
+    assert result["track_meta"]["T1"]["candidate_id"] == "P13_T1_CALIBRATED_SIGMOID"
 
 
 def test_phase12_lock_resolution_and_validation_helpers(monkeypatch, tmp_path: Path) -> None:
@@ -777,11 +839,96 @@ def test_selection_guardrails_and_claim_free_reports(tmp_path: Path) -> None:
         "brier_score": 0.19,
     }
     rejected = {**accepted, "average_precision": 0.1, "log_loss": 0.8, "brier_score": 0.7}
-    assert accept_track_calibration(raw, accepted, settings)["accepted"] is True
-    assert accept_track_calibration(raw, rejected, settings)["accepted"] is False
     assert (
-        accept_track_calibration(raw, {"calibration_method": "C0_NONE", **raw}, settings)["reason"]
+        accept_track_calibration(raw, accepted, settings, calibration_method="SIGMOID")["accepted"]
+        is True
+    )
+    assert (
+        accept_track_calibration(raw, rejected, settings, calibration_method="C1_SIGMOID")[
+            "accepted"
+        ]
+        is False
+    )
+    assert (
+        accept_track_calibration(raw, raw, settings, calibration_method="C0_NONE")["reason"]
         == "NONE"
+    )
+    explicit_raw = {
+        "average_precision": 0.100,
+        "roc_auc": 0.650,
+        "log_loss": 0.160,
+        "brier_score": 0.030,
+    }
+    good_sigmoid = {
+        "average_precision": 0.100,
+        "roc_auc": 0.650,
+        "log_loss": 0.150,
+        "brier_score": 0.028,
+    }
+    good_isotonic = {
+        "average_precision": 0.101,
+        "roc_auc": 0.651,
+        "log_loss": 0.149,
+        "brier_score": 0.027,
+    }
+    bad_sigmoid = {**good_sigmoid, "log_loss": 0.2, "brier_score": 0.2}
+    assert accept_track_calibration(
+        explicit_raw, good_sigmoid, settings, calibration_method="SIGMOID"
+    ) == {
+        "accepted": True,
+        "reason": "ACCEPTED",
+        "guardrails": True,
+        "material_probability_gain": True,
+        "effective": "CALIBRATED",
+    }
+    assert (
+        accept_track_calibration(
+            explicit_raw, good_isotonic, settings, calibration_method="C2_ISOTONIC"
+        )["accepted"]
+        is True
+    )
+    assert accept_track_calibration(
+        explicit_raw, explicit_raw, settings, calibration_method="NONE"
+    ) == {"accepted": False, "reason": "NONE", "effective": "RAW_PHASE12"}
+    assert (
+        accept_track_calibration(
+            explicit_raw, bad_sigmoid, settings, calibration_method="C1_SIGMOID"
+        )["accepted"]
+        is False
+    )
+    with pytest.raises(ValueError, match="Unsupported Phase 13 calibration method"):
+        accept_track_calibration(explicit_raw, good_sigmoid, settings, calibration_method="UNKNOWN")
+    assert (
+        select_best_single_candidate(
+            [
+                {
+                    "candidate_id": "P13_T1",
+                    "validation_metrics": {
+                        "average_precision": 0.1000004,
+                        "log_loss": 0.160,
+                        "brier_score": 0.030,
+                        "roc_auc": 0.650,
+                        "mcc": 0.20,
+                    },
+                    "complexity_order": 0,
+                    "feature_count": 10,
+                },
+                {
+                    "candidate_id": "P13_T3",
+                    "validation_metrics": {
+                        "average_precision": 0.1000000,
+                        "log_loss": 0.150,
+                        "brier_score": 0.028,
+                        "roc_auc": 0.650,
+                        "mcc": 0.20,
+                    },
+                    "complexity_order": 0,
+                    "feature_count": 10,
+                },
+            ],
+            settings,
+        )["candidate_id"]
+        == "P13_T3"
     )
     best = {"average_precision": 0.4, "roc_auc": 0.7, "log_loss": 0.4, "brier_score": 0.2}
     assert (

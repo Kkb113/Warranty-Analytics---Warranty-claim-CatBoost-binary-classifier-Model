@@ -14,6 +14,14 @@ from .config import (
 )
 
 TOLERANCE = 1.0e-6
+_CALIBRATION_METHOD_ALIASES = {
+    "NONE": "NONE",
+    "C0_NONE": "NONE",
+    "SIGMOID": "SIGMOID",
+    "C1_SIGMOID": "SIGMOID",
+    "ISOTONIC": "ISOTONIC",
+    "C2_ISOTONIC": "ISOTONIC",
+}
 
 
 def _compare(left: float, right: float, *, higher: bool, tolerance: float = TOLERANCE) -> int:
@@ -67,6 +75,21 @@ def select_phase13_champion(
         return compare_champion_candidates(left, right, tolerance=locked.selection_tie_tolerance)
 
     return str(sorted(candidates, key=cmp_to_key(comparator))[0]["candidate_id"])
+
+
+def select_best_single_candidate(
+    candidates: list[dict[str, Any]], settings: CalibrationEnsembleSettings | None = None
+) -> dict[str, Any]:
+    """Select the best effective single using frozen Phase 13 semantics."""
+
+    if not candidates:
+        raise ValueError("No effective single candidates are available.")
+    locked = settings or load_calibration_ensemble_settings()
+
+    def comparator(left: dict[str, Any], right: dict[str, Any]) -> int:
+        return compare_champion_candidates(left, right, tolerance=locked.selection_tie_tolerance)
+
+    return sorted(candidates, key=cmp_to_key(comparator))[0]
 
 
 def select_calibration_method(
@@ -221,10 +244,17 @@ def select_ensemble(
 
 
 def accept_track_calibration(
-    raw: dict[str, Any], calibrated: dict[str, Any], settings: Any
+    raw: dict[str, Any],
+    calibrated: dict[str, Any],
+    settings: Any,
+    *,
+    calibration_method: str,
 ) -> dict[str, Any]:
-    method = str(calibrated.get("calibration_method", "C0_NONE"))
-    if method == "C0_NONE":
+    try:
+        method = _CALIBRATION_METHOD_ALIASES[str(calibration_method).upper()]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported Phase 13 calibration method: {calibration_method}") from exc
+    if method == "NONE":
         return {"accepted": False, "reason": "NONE", "effective": "RAW_PHASE12"}
     guardrails = (
         float(calibrated["average_precision"])
@@ -290,6 +320,7 @@ __all__ = [
     "accept_track_calibration",
     "compare_champion_candidates",
     "select_calibration_method",
+    "select_best_single_candidate",
     "select_ensemble",
     "select_phase13_champion",
 ]
