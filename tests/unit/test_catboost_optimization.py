@@ -18,11 +18,17 @@ from warranty_analytics_model.baseline_model.provenance import (
 from warranty_analytics_model.catboost_optimization.config import (
     TRACK_TO_EXPERIMENT,
     load_optimization_settings,
+    settings_payload,
 )
-from warranty_analytics_model.catboost_optimization.contract import validate_optimization_contract
+from warranty_analytics_model.catboost_optimization.contract import (
+    REQUIRED_PHASE9_RUN_ID,
+    load_optimization_contract,
+    validate_optimization_contract,
+)
 from warranty_analytics_model.catboost_optimization.finalists import fit_phase10_finalists
 from warranty_analytics_model.catboost_optimization.inner_folds import build_inner_fold_plan
 from warranty_analytics_model.catboost_optimization.input import (
+    EXPECTED_PHASE9_TARGET_HASHES,
     load_validation_targets_after_freeze,
 )
 from warranty_analytics_model.catboost_optimization.manifest import (
@@ -62,6 +68,9 @@ from warranty_analytics_model.catboost_optimization.study import (
     run_track_study,
 )
 from warranty_analytics_model.catboost_optimization.validation import (
+    TRIAL_FOLD_METRIC_COLUMNS,
+    _reproduce_winning_trials,
+    _validate_trial_fold_evidence,
     validate_optimization_directory,
 )
 
@@ -595,6 +604,286 @@ def test_phase10_contract_hashes_metrics_and_reports(tmp_path: Path) -> None:
         },
     )
     assert (tmp_path / "reports" / "phase_10_summary.md").is_file()
+
+
+def test_phase10_contract_validator_is_fail_closed_on_policy_and_dependency_drift(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from dataclasses import replace
+
+    import warranty_analytics_model.catboost_optimization.contract as contract
+
+    settings = load_optimization_settings()
+    declared_extra = contract._validate_declared_optimization_extra
+    monkeypatch.setattr(contract, "discover_repository_root", lambda root=None: tmp_path)
+    monkeypatch.setattr(
+        contract,
+        "load_optimization_contract",
+        lambda root=None: ({"phase10": {}}, "synthetic-checksum"),
+    )
+    monkeypatch.setattr(contract, "load_optimization_settings", lambda root=None: settings)
+    monkeypatch.setattr(
+        contract,
+        "_validate_declared_optimization_extra",
+        lambda root: "synthetic optimization extra error",
+    )
+    result = contract.validate_optimization_contract(tmp_path)
+    assert result["valid"] is False
+    assert any("policy differs" in error for error in result["errors"])
+    assert "synthetic optimization extra error" in result["errors"]
+
+    monkeypatch.setattr(
+        contract,
+        "load_optimization_contract",
+        lambda root=None: ({"phase10": "not-a-mapping"}, "synthetic-checksum"),
+    )
+    malformed = contract.validate_optimization_contract(tmp_path)
+    assert malformed["valid"] is False
+    assert "Phase 10 contract must contain phase10 mapping." in malformed["errors"]
+
+    assert "Could not read pyproject" in declared_extra(tmp_path)
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        '[project.optional-dependencies]\noptimization = ["wrong"]\n', encoding="utf-8"
+    )
+    assert "must contain exactly" in declared_extra(tmp_path)
+
+    altered_settings = replace(
+        settings,
+        tracks=("T1",),
+        trials_per_track=49,
+        search_space={},
+        fixed_parameters={},
+    )
+    expected_policy = contract._expected_policy(settings)
+    monkeypatch.setattr(contract, "_expected_policy", lambda _: expected_policy)
+    monkeypatch.setattr(contract, "load_optimization_settings", lambda root=None: altered_settings)
+    monkeypatch.setattr(contract, "_validate_declared_optimization_extra", lambda root: None)
+    monkeypatch.setattr(
+        contract,
+        "load_optimization_contract",
+        lambda root=None: ({"phase10": {}}, "synthetic-checksum"),
+    )
+    drift = contract.validate_optimization_contract(tmp_path)
+    assert any("tracks are not exactly" in error for error in drift["errors"])
+    assert any("exactly 50 trials" in error for error in drift["errors"])
+    assert any("search space differs" in error for error in drift["errors"])
+    assert any("fixed CatBoost" in error for error in drift["errors"])
+
+    monkeypatch.setattr(
+        contract,
+        "load_optimization_contract",
+        lambda root=None: (_ for _ in ()).throw(RuntimeError("synthetic contract failure")),
+    )
+    failed = contract.validate_optimization_contract(tmp_path)
+    assert "synthetic contract failure" in failed["errors"]
+
+
+def test_trial_fold_evidence_recomputes_successful_trial_aggregates() -> None:
+    settings = load_optimization_settings()
+    fold_specs = [
+        {"fold_id": fold_id, "train_rows": 10, "validation_rows": 5} for fold_id in (1, 2, 3)
+    ]
+    history_rows: list[dict[str, Any]] = []
+    fold_rows: list[dict[str, Any]] = []
+    for track in settings.tracks:
+        trial_fold_rows = [
+            {
+                "fold_id": fold_id,
+                "average_precision": 0.20 + 0.01 * fold_id,
+                "roc_auc": 0.60 + 0.01 * fold_id,
+                "log_loss": 0.40 - 0.01 * fold_id,
+                "brier_score": 0.20 - 0.005 * fold_id,
+                "train_rows": 10,
+                "validation_rows": 5,
+            }
+            for fold_id in (1, 2, 3)
+        ]
+        aggregate = aggregate_fold_metrics(trial_fold_rows)
+        history_rows.append(
+            {
+                "track": track,
+                "trial_number": 0,
+                "state": "COMPLETE",
+                **_valid_parameters(),
+                **aggregate,
+                "training_seconds": 0.1,
+            }
+        )
+        fold_rows.extend({"track": track, "trial_number": 0, **row} for row in trial_fold_rows)
+
+    history = pd.DataFrame(history_rows, columns=TRIAL_HISTORY_COLUMNS)
+    fold_metrics = pd.DataFrame(fold_rows, columns=TRIAL_FOLD_METRIC_COLUMNS)
+    errors: list[str] = []
+    evidence = _validate_trial_fold_evidence(
+        history, fold_metrics, settings, {"folds": fold_specs}, errors
+    )
+
+    assert errors == []
+    assert evidence == {
+        "required_fold_ids": [1, 2, 3],
+        "successful_trial_count": 2,
+        "fold_row_count": 6,
+        "aggregate_reproduction": "PASS",
+    }
+
+
+def test_trial_fold_evidence_rejects_malformed_schema_and_memberships() -> None:
+    settings = load_optimization_settings()
+    errors: list[str] = []
+    empty = _validate_trial_fold_evidence(
+        pd.DataFrame(), pd.DataFrame(), settings, {"folds": []}, errors
+    )
+    assert empty["aggregate_reproduction"] == "NOT_RUN"
+    assert "trial_fold_metrics schema differs" in errors[0]
+
+    history = pd.DataFrame(
+        [
+            {
+                "track": "BAD",
+                "trial_number": 0,
+                "state": "COMPLETE",
+                **_valid_parameters(),
+                **aggregate_fold_metrics(
+                    [
+                        {
+                            "average_precision": 0.2,
+                            "roc_auc": 0.6,
+                            "log_loss": 0.4,
+                            "brier_score": 0.2,
+                        }
+                    ]
+                    * 3
+                ),
+                "training_seconds": 0.1,
+            }
+        ],
+        columns=TRIAL_HISTORY_COLUMNS,
+    )
+    fold_row = {
+        "track": "BAD",
+        "trial_number": 0,
+        "fold_id": 4,
+        "average_precision": 0.2,
+        "roc_auc": 0.6,
+        "log_loss": 0.4,
+        "brier_score": 0.2,
+        "train_rows": 10,
+        "validation_rows": 5,
+    }
+    fold_metrics = pd.DataFrame([fold_row, fold_row], columns=TRIAL_FOLD_METRIC_COLUMNS)
+    errors = []
+    evidence = _validate_trial_fold_evidence(
+        history,
+        fold_metrics,
+        settings,
+        {"folds": [{}, "bad", {"fold_id": "not-an-int"}]},
+        errors,
+    )
+    assert evidence["aggregate_reproduction"] == "BLOCKED"
+    assert any("unexpected track" in error for error in errors)
+    assert any("duplicate" in error for error in errors)
+    assert any("outside {1,2,3}" in error for error in errors)
+    assert any("non-integer fold ID" in error for error in errors)
+
+
+def test_winning_trial_reproduction_replays_each_track_without_optuna(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    import warranty_analytics_model.catboost_optimization.validation as validation
+
+    settings = load_optimization_settings()
+    history_rows: list[dict[str, Any]] = []
+    fold_rows: list[dict[str, Any]] = []
+    fold_metrics = [
+        {
+            "fold_id": fold_id,
+            "average_precision": 0.20 + 0.01 * fold_id,
+            "roc_auc": 0.60 + 0.01 * fold_id,
+            "log_loss": 0.40 - 0.01 * fold_id,
+            "brier_score": 0.20 - 0.005 * fold_id,
+            "train_rows": 10,
+            "validation_rows": 5,
+        }
+        for fold_id in (1, 2, 3)
+    ]
+    aggregate = aggregate_fold_metrics(fold_metrics)
+    for track in settings.tracks:
+        history_rows.append(
+            {
+                "track": track,
+                "trial_number": 7,
+                "state": "COMPLETE",
+                **_valid_parameters(),
+                **aggregate,
+                "training_seconds": 0.1,
+            }
+        )
+        fold_rows.extend({"track": track, "trial_number": 7, **row} for row in fold_metrics)
+    history = pd.DataFrame(history_rows, columns=TRIAL_HISTORY_COLUMNS)
+    persisted_fold_metrics = pd.DataFrame(fold_rows, columns=TRIAL_FOLD_METRIC_COLUMNS)
+    fake_evaluation = SimpleNamespace(fold_metrics=tuple(fold_metrics), aggregate=aggregate)
+    monkeypatch.setattr(validation, "select_best_trial", lambda rows: rows.iloc[0].to_dict())
+    monkeypatch.setattr(
+        validation,
+        "evaluate_parameters",
+        lambda *args, **kwargs: fake_evaluation,
+    )
+    inputs = SimpleNamespace(
+        development=pd.DataFrame({"warranty_claim_key": [1, 2], "split": ["TRAIN", "TRAIN"]}),
+        feature_sets={"E1": object(), "E3": object()},
+    )
+    replayed = _reproduce_winning_trials(
+        inputs,
+        pd.DataFrame(),
+        history,
+        persisted_fold_metrics,
+        SimpleNamespace(),
+        settings,
+        Path.cwd(),
+        [],
+    )
+
+    assert replayed == {
+        "T1": {
+            "trial_number": 7,
+            "fold_count": 3,
+            "mean_average_precision": aggregate["mean_average_precision"],
+            "mean_roc_auc": aggregate["mean_roc_auc"],
+            "mean_log_loss": aggregate["mean_log_loss"],
+            "mean_brier_score": aggregate["mean_brier_score"],
+        },
+        "T3": {
+            "trial_number": 7,
+            "fold_count": 3,
+            "mean_average_precision": aggregate["mean_average_precision"],
+            "mean_roc_auc": aggregate["mean_roc_auc"],
+            "mean_log_loss": aggregate["mean_log_loss"],
+            "mean_brier_score": aggregate["mean_brier_score"],
+        },
+    }
+
+    def fail_evaluation(*args: Any, **kwargs: Any) -> Any:
+        raise OptimizationError("synthetic replay failure")
+
+    monkeypatch.setattr(validation, "evaluate_parameters", fail_evaluation)
+    errors: list[str] = []
+    assert (
+        _reproduce_winning_trials(
+            inputs,
+            pd.DataFrame(),
+            history,
+            persisted_fold_metrics,
+            SimpleNamespace(),
+            settings,
+            Path.cwd(),
+            errors,
+        )
+        == {}
+    )
+    assert len(errors) == 2
 
 
 def test_phase10_metric_and_prediction_guards() -> None:
@@ -1193,6 +1482,7 @@ def test_standalone_validator_accepts_recomputed_fake_bundle(
         {
             "warranty_claim_key": [1, 2, 3, 4],
             "split": ["TRAIN", "TRAIN", "VALIDATION", "VALIDATION"],
+            "claim__claim_date": pd.date_range("2024-01-01", periods=4),
             "feature": [0.0, 1.0, 2.0, 3.0],
         }
     )
@@ -1211,7 +1501,10 @@ def test_standalone_validator_accepts_recomputed_fake_bundle(
     inputs = Phase10Inputs(
         root=Path.cwd(),
         phase9_dir=tmp_path / "phase9",
-        phase9_manifest={},
+        phase9_manifest={
+            "run_id": REQUIRED_PHASE9_RUN_ID,
+            "target_hashes": dict(EXPECTED_PHASE9_TARGET_HASHES),
+        },
         phase9_inputs=None,  # type: ignore[arg-type]
         feature_sets={"E1": feature_set, "E3": feature_set},
         development=development,
@@ -1402,8 +1695,14 @@ def test_standalone_validator_accepts_recomputed_fake_bundle(
     )
     manifest = {
         "phase": 10,
+        "contract_version": load_optimization_contract()[0]["phase10"]["version"],
+        "contract_checksum": load_optimization_contract()[1],
+        "contract_policy_snapshot": load_optimization_contract()[0]["phase10"],
         "phase9_dir": str(phase9_dir),
+        "phase9_run_id": REQUIRED_PHASE9_RUN_ID,
         "phase9_hardened_status": "HARDENED_PASS",
+        "phase9_target_hashes": dict(EXPECTED_PHASE9_TARGET_HASHES),
+        "phase9_feature_set_hashes": {"T1": "tiny", "T3": "tiny"},
         "outer_validation_accessed": True,
         "test_target_rows_loaded": 0,
         "test_predictions_created": 0,
@@ -1411,6 +1710,9 @@ def test_standalone_validator_accepts_recomputed_fake_bundle(
         "test_target_access_allowed": False,
         "first_allowed_test_target_phase": 15,
         "inner_fold_content_sha256": fold_hash,
+        "settings": settings_payload(settings),
+        "trials_per_track": 1,
+        "objective_metric": "mean_average_precision",
         "warnings": [],
         "artifact_file_sha256": {name: sha256_file(run_dir / name) for name in artifact_names},
     }
@@ -1419,6 +1721,24 @@ def test_standalone_validator_accepts_recomputed_fake_bundle(
     monkeypatch.setattr(validation, "discover_repository_root", lambda root=None: Path.cwd())
     monkeypatch.setattr(validation, "load_optimization_settings", lambda root=None: settings)
     monkeypatch.setattr(validation, "load_locked_phase9_inputs", lambda *args, **kwargs: inputs)
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        validation,
+        "build_inner_fold_plan",
+        lambda *args, **kwargs: SimpleNamespace(content_sha256=fold_hash, assignments=fold_frame),
+    )
+    monkeypatch.setattr(
+        validation,
+        "_validate_trial_fold_evidence",
+        lambda *args, **kwargs: {
+            "required_fold_ids": [1, 2, 3],
+            "successful_trial_count": 2,
+            "fold_row_count": 0,
+            "aggregate_reproduction": "PASS",
+        },
+    )
+    monkeypatch.setattr(validation, "_reproduce_winning_trials", lambda *args, **kwargs: {})
     monkeypatch.setattr(
         validation,
         "validate_model_directory",
@@ -1440,3 +1760,4 @@ def test_standalone_validator_accepts_recomputed_fake_bundle(
     result = validation.validate_optimization_directory(run_dir, project_root=Path.cwd())
     assert result["valid"] is True, result["errors"]
     assert result["hardening_status"] == "HARDENED_PASS"
+
