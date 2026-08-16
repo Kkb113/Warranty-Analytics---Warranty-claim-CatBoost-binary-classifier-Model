@@ -679,4 +679,3 @@ def validate_optimization_directory(
         "trial_fold_evidence": fold_evidence,
         "winning_trial_reproduction": winning_trial_reproduction,
     }
-

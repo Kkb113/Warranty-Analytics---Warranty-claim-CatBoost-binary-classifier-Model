@@ -1760,4 +1760,3 @@ def test_standalone_validator_accepts_recomputed_fake_bundle(
     result = validation.validate_optimization_directory(run_dir, project_root=Path.cwd())
     assert result["valid"] is True, result["errors"]
     assert result["hardening_status"] == "HARDENED_PASS"
-

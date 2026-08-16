@@ -485,4 +485,3 @@ def validate_existing_optimization_run(
     if validation_path.parent.is_dir():
         write_json(validation_path, result)
     return result
-
