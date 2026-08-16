@@ -1550,4 +1550,3 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_phase3(arguments)
     parser.error(f"Unsupported command: {arguments.command}")
     return 2
-

@@ -6,10 +6,13 @@ import hashlib
 import json
 from collections.abc import Iterable
 from dataclasses import dataclass
+from functools import cmp_to_key
 from typing import Any
 
 from ..baseline_model.models import FeatureSetSpec
 from .config import FeatureSelectionError, FeatureSelectionSettings
+
+CHAMPION_TOLERANCE = 1.0e-6
 
 
 def feature_set_sha256(experiment_id: str, features: Iterable[str]) -> str:
@@ -150,6 +153,9 @@ def generate_candidates(
     if len(stable) < settings.minimum_feature_count:
         stable = ranking[: settings.minimum_feature_count]
     definitions.append(("STABILITY_PRUNED", "fold_stability", stable))
+    # Deduplicate by the canonical feature list, not by the candidate-specific
+    # experiment hash.  Different strategies may intentionally produce the
+    # same subset and must not consume an extra evaluation slot.
     seen: set[str] = set()
     candidates: list[CandidateDefinition] = []
     for suffix, strategy, names in definitions:
@@ -158,10 +164,11 @@ def generate_candidates(
             raise FeatureSelectionError(
                 f"Candidate {track}_{suffix} violates minimum feature count."
             )
-        digest = feature_set_sha256(f"P11_{track}_{suffix}", unique_names)
-        if digest in seen:
+        canonical_digest = feature_list_sha256(unique_names)
+        if canonical_digest in seen:
             continue
-        seen.add(digest)
+        seen.add(canonical_digest)
+        digest = feature_set_sha256(f"P11_{track}_{suffix}", unique_names)
         candidates.append(
             CandidateDefinition(
                 candidate_id=f"P11_{track}_{suffix}",
@@ -261,3 +268,55 @@ def replacement_decision(
         "ap_improvement_eligible": direct,
     }
 
+
+def _is_existing_parent(candidate: dict[str, Any]) -> bool:
+    explicit = candidate.get("is_parent_candidate")
+    if isinstance(explicit, bool):
+        return explicit
+    parent_id = str(candidate.get("parent_candidate_id", ""))
+    return bool(parent_id and str(candidate.get("candidate_id", "")) == parent_id)
+
+
+def _compare_phase11_champion_rows(left: dict[str, Any], right: dict[str, Any]) -> int:
+    """Compare outer candidates using the locked Phase 11 champion policy."""
+
+    left_metrics = left.get("metrics")
+    right_metrics = right.get("metrics")
+    if not isinstance(left_metrics, dict) or not isinstance(right_metrics, dict):
+        raise FeatureSelectionError("Phase 11 champion candidates must contain metric mappings.")
+    for key, direction in (
+        ("average_precision", 1),
+        ("roc_auc", 1),
+        ("log_loss", -1),
+    ):
+        try:
+            delta = float(left_metrics[key]) - float(right_metrics[key])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise FeatureSelectionError(f"Phase 11 champion metrics are missing {key}.") from exc
+        if abs(delta) > CHAMPION_TOLERANCE:
+            return -1 if delta * direction > 0 else 1
+    try:
+        left_count = int(left["feature_count"])
+        right_count = int(right["feature_count"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise FeatureSelectionError("Phase 11 champion feature counts are invalid.") from exc
+    if left_count != right_count:
+        return -1 if left_count < right_count else 1
+    left_parent = _is_existing_parent(left)
+    right_parent = _is_existing_parent(right)
+    if left_parent != right_parent:
+        return -1 if left_parent else 1
+    left_id = str(left.get("candidate_id", ""))
+    right_id = str(right.get("candidate_id", ""))
+    if left_id == right_id:
+        return 0
+    return -1 if left_id < right_id else 1
+
+
+def select_phase11_champion(candidates: Iterable[dict[str, Any]]) -> dict[str, Any]:
+    """Select the deterministic Phase 11 outer-validation champion."""
+
+    rows = list(candidates)
+    if not rows:
+        raise FeatureSelectionError("No Phase 11 champion candidates are available.")
+    return sorted(rows, key=cmp_to_key(_compare_phase11_champion_rows))[0]

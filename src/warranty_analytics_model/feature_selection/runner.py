@@ -59,6 +59,7 @@ from .selection import (
     generate_candidates,
     replacement_decision,
     select_candidate,
+    select_phase11_champion,
     stable_importance_ranking,
     subset_feature_set,
 )
@@ -603,7 +604,7 @@ def _family_ablation(
     work_dir: Path,
 ) -> list[dict[str, Any]]:  # pragma: no cover
     target_by_key = targets.set_index(KEY)[TARGET].astype("int8")
-    families = sorted(set(family_by_feature.values()))
+    families = sorted({family_by_feature[name] for name in parent.feature_names})
     results: list[dict[str, Any]] = []
     # Parent metrics are obtained from the deterministic replay before this call.
     for family in families:
@@ -693,6 +694,16 @@ def build_phase11(
 ) -> dict[str, Any]:  # pragma: no cover
     root = discover_repository_root(project_root)
     settings = load_feature_selection_settings(root)
+    selected_run_id = run_id or phase11_run_id()
+    output_root = _resolve(root, output_dir, settings.output_directory)
+    report_root = _resolve(root, report_dir, settings.report_directory)
+    final_dir = output_root / selected_run_id
+    if final_dir.exists() and not overwrite:
+        raise FeatureSelectionError(f"Completed Phase 11 run is immutable: {final_dir}")
+    if final_dir.exists() and overwrite and resume:
+        raise FeatureSelectionError("Phase 11 --overwrite and --resume cannot be combined.")
+    if final_dir.exists() and overwrite:
+        shutil.rmtree(final_dir)
     plan = phase11_plan_check(
         phase10_dir,
         project_root=root,
@@ -714,16 +725,16 @@ def build_phase11(
     folds = plan["inner_fold_plan"]
     upstream = plan["upstream"]
     compute: ComputePlan = plan["compute_plan"]
-    selected_run_id = run_id or phase11_run_id()
-    output_root = _resolve(root, output_dir, settings.output_directory)
-    report_root = _resolve(root, report_dir, settings.report_directory)
-    final_dir = output_root / selected_run_id
-    if final_dir.exists() and not resume and not overwrite:
-        raise FeatureSelectionError(f"Completed Phase 11 run is immutable: {final_dir}")
-    if final_dir.exists() and overwrite and not resume:
-        shutil.rmtree(final_dir)
     output_root.mkdir(parents=True, exist_ok=True)
     work_dir = output_root / f".phase11_{selected_run_id}.work"
+    if resume and not work_dir.exists():
+        raise FeatureSelectionError(
+            f"Phase 11 --resume requires an incomplete work directory: {work_dir}"
+        )
+    if not resume and work_dir.exists() and any(work_dir.iterdir()):
+        raise FeatureSelectionError(
+            f"Phase 11 work directory already exists; use --resume: {work_dir}"
+        )
     work_dir.mkdir(parents=True, exist_ok=True)
     settings_compute = compute.as_dict()
     parents: dict[str, dict[str, Any]] = {}
@@ -1081,19 +1092,14 @@ def build_phase11(
             "feature_count": selected[track]["feature_count"]
             if effective_candidates[track] == selected[track]["candidate_id"]
             else parents[track]["parent_feature_count"],
+            "parent_candidate_id": parents[track]["effective_parent_candidate_id"],
+            "is_parent_candidate": (
+                effective_candidates[track] == parents[track]["effective_parent_candidate_id"]
+            ),
         }
         for track in TRACKS
     ]
-    champion = sorted(
-        effective_outer,
-        key=lambda row: (
-            -float(row["metrics"]["average_precision"]),
-            -float(row["metrics"]["roc_auc"]),
-            float(row["metrics"]["log_loss"]),
-            int(row["feature_count"]),
-            str(row["candidate_id"]),
-        ),
-    )[0]["candidate_id"]
+    champion = select_phase11_champion(effective_outer)["candidate_id"]
     warnings = [
         "SYNTHETIC_POC",
         "BUSINESS_TARGET_UNCONFIRMED",
@@ -1275,7 +1281,7 @@ def build_phase11(
     write_json(work_dir / "phase11_manifest.json", phase11_manifest)
     # Publish atomically only after every artifact has been written.
     if final_dir.exists():
-        shutil.rmtree(final_dir)
+        raise FeatureSelectionError(f"Completed Phase 11 run is immutable: {final_dir}")
     work_dir.replace(final_dir)
     report_directory = report_root / selected_run_id
     report_directory.mkdir(parents=True, exist_ok=True)
@@ -1380,4 +1386,3 @@ def validate_existing_selection(  # pragma: no cover
     from .validation import validate_selection_directory
 
     return validate_selection_directory(selection_dir, project_root=project_root)
-

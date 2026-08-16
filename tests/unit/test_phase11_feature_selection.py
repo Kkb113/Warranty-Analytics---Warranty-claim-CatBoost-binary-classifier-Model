@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 from copy import deepcopy
+from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
@@ -38,6 +40,7 @@ from warranty_analytics_model.feature_selection.selection import (
     generate_candidates,
     replacement_decision,
     select_candidate,
+    select_phase11_champion,
     subset_feature_set,
 )
 
@@ -162,6 +165,228 @@ def test_subset_candidates_selection_and_replacement() -> None:
         {"average_precision": 0.101, "roc_auc": 0.70, "log_loss": 0.13, "feature_count": 20},
         settings,
     )["replace_parent"]
+
+
+def test_candidate_generation_deduplicates_identical_feature_lists() -> None:
+    parent = _parent()
+    settings = replace(
+        load_feature_selection_settings(),
+        candidate_fractions=(1.0, 0.80),
+    )
+    family_by_feature = {name: "maintenance_history" for name in parent.feature_names}
+    stability = [
+        {
+            "feature": name,
+            "top_50_percent_fold_count": 3 if index < 32 else 0,
+            "top_25_percent_fold_count": 1 if index < 32 else 0,
+        }
+        for index, name in enumerate(parent.feature_names)
+    ]
+    candidates = generate_candidates(
+        "T1",
+        parent,
+        list(parent.feature_names),
+        [{"family": "maintenance_history", "delta_ap_vs_parent": 0.0}],
+        stability,
+        family_by_feature,
+        settings,
+    )
+    digests = [feature_list_sha256(candidate.feature_list) for candidate in candidates]
+    assert len(digests) == len(set(digests))
+    assert len(candidates) == 2
+
+
+def test_phase11_champion_uses_tolerance_and_parent_preference() -> None:
+    parent = {
+        "candidate_id": "P10_T1_E1_OPTIMIZED",
+        "parent_candidate_id": "P10_T1_E1_OPTIMIZED",
+        "is_parent_candidate": True,
+        "feature_count": 40,
+        "metrics": {"average_precision": 0.5, "roc_auc": 0.7, "log_loss": 0.2},
+    }
+    new_subset = {
+        "candidate_id": "P11_T1_TOP_025",
+        "parent_candidate_id": "P10_T1_E1_OPTIMIZED",
+        "is_parent_candidate": False,
+        "feature_count": 40,
+        "metrics": {
+            "average_precision": 0.5000005,
+            "roc_auc": 0.7000005,
+            "log_loss": 0.2000005,
+        },
+    }
+    assert select_phase11_champion([new_subset, parent])["candidate_id"] == parent["candidate_id"]
+
+    materially_better = {
+        **new_subset,
+        "metrics": {**new_subset["metrics"], "average_precision": 0.500002},
+    }
+    assert (
+        select_phase11_champion([parent, materially_better])["candidate_id"]
+        == materially_better["candidate_id"]
+    )
+
+    inferred_parent = {**parent, "is_parent_candidate": None}
+    inferred_subset = {**new_subset, "is_parent_candidate": None}
+    assert (
+        select_phase11_champion([inferred_subset, inferred_parent])["candidate_id"]
+        == parent["candidate_id"]
+    )
+
+    fewer_features = {**new_subset, "feature_count": 20}
+    assert (
+        select_phase11_champion([parent, fewer_features])["candidate_id"]
+        == new_subset["candidate_id"]
+    )
+
+    with pytest.raises(ValueError, match="No Phase 11 champion"):
+        select_phase11_champion([])
+    with pytest.raises(ValueError, match="metric mappings"):
+        select_phase11_champion([parent, {**parent, "metrics": None}])
+    with pytest.raises(ValueError, match="missing log_loss"):
+        select_phase11_champion(
+            [parent, {**parent, "metrics": {"average_precision": 0.5, "roc_auc": 0.7}}]
+        )
+    with pytest.raises(ValueError, match="feature counts"):
+        select_phase11_champion([parent, {**parent, "feature_count": "invalid"}])
+
+
+def test_phase11_metric_schema_is_required() -> None:
+    errors: list[str] = []
+    assert not phase11_validation._require_metric_schema(
+        {"average_precision": 0.1}, "candidate", errors
+    )
+    assert "candidate metric payload is missing" in errors[0]
+
+
+def test_phase11_actual_model_parameter_drift_is_blocked() -> None:
+    expected = {
+        "iterations": 300,
+        "learning_rate": 0.03,
+        "depth": 9,
+        "l2_leaf_reg": 6.0,
+        "random_strength": 2.0,
+        "bagging_temperature": 1.0,
+        "border_count": 64,
+        "rsm": 1.0,
+        "loss_function": "Logloss",
+        "bootstrap_type": "Bayesian",
+        "random_seed": 20260810,
+        "task_type": "CPU",
+        "use_best_model": False,
+    }
+    actual = {**expected, "depth": 8, "class_weights": [2.0, 1.0]}
+    errors: list[str] = []
+    phase11_validation._validate_actual_model_parameters(
+        actual, expected, "T1 selected model", errors
+    )
+    assert any("depth" in error for error in errors)
+    assert any("class_weights" in error for error in errors)
+
+
+def test_phase11_parent_source_resolves_phase10_and_phase9_keys(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    phase9_dir = tmp_path / "phase9"
+    phase10_dir = tmp_path / "phase10"
+    phase9_dir.mkdir()
+    phase10_dir.mkdir()
+    p9_entry = {"model_file": "models/e1.cbm", "model_sha256": "p9-model"}
+    (phase9_dir / "model_manifest.json").write_text(
+        json.dumps({"models": {"E1": p9_entry}}), encoding="utf-8"
+    )
+    best = {
+        "best_params": {
+            "iterations": 300,
+            "learning_rate": 0.03,
+            "depth": 9,
+            "l2_leaf_reg": 6.0,
+            "random_strength": 2.0,
+            "bagging_temperature": 1.0,
+            "border_count": 64,
+            "rsm": 1.0,
+        },
+        "best_param_sha256": "p10-params",
+    }
+    (phase10_dir / "best_params.json").write_text(json.dumps({"T1": best}), encoding="utf-8")
+    (phase10_dir / "optimization_manifest.json").write_text(
+        json.dumps({"settings": {"fixed_parameters": {"loss_function": "Logloss"}}}),
+        encoding="utf-8",
+    )
+    p10_entry = {
+        "model_file": "models/t1.cbm",
+        "model_sha256": "p10-model",
+        "parameter_sha256": "p10-params",
+    }
+    phase10_manifest = {"models": {"P10_T1_E1_OPTIMIZED": p10_entry}}
+    upstream = {"phase9_dir": phase9_dir, "phase10_dir": phase10_dir}
+    monkeypatch.setattr(
+        phase11_validation,
+        "load_baseline_settings",
+        lambda _root: SimpleNamespace(
+            catboost_parameters={
+                "loss_function": "Logloss",
+                "iterations": 500,
+                "learning_rate": 0.05,
+                "depth": 6,
+                "l2_leaf_reg": 3.0,
+                "random_strength": 1.0,
+                "bootstrap_type": "Bayesian",
+                "bagging_temperature": 1.0,
+                "random_seed": 20260810,
+                "task_type": "CPU",
+                "thread_count": 1,
+                "allow_writing_files": False,
+                "verbose": False,
+                "use_best_model": False,
+            }
+        ),
+    )
+
+    _, source, manifest_expected, actual_model_expected, parameter_hash = (
+        phase11_validation._resolve_parent_source(
+            "T1", "P9_E1_BASELINE", upstream, phase10_manifest, tmp_path
+        )
+    )
+    assert source == p9_entry
+    assert parameter_hash == phase11_validation.canonical_json_sha256(
+        phase11_validation.load_baseline_settings(tmp_path).catboost_parameters
+    )
+    assert "border_count" not in manifest_expected
+    assert "rsm" not in manifest_expected
+    assert actual_model_expected["border_count"] == 254
+    assert actual_model_expected["rsm"] == 1.0
+    p9_manifest_entry = {
+        "statistical_parameters": {
+            key: value for key, value in manifest_expected.items() if key != "thread_count"
+        }
+    }
+    errors: list[str] = []
+    phase11_validation._validate_frozen_parameters(
+        p9_manifest_entry,
+        p9_manifest_entry,
+        manifest_expected,
+        "T1",
+        errors,
+    )
+    phase11_validation._validate_actual_model_parameters(
+        actual_model_expected,
+        actual_model_expected,
+        "T1 parent model",
+        errors,
+    )
+    assert errors == []
+
+    source_dir, source, manifest_expected, actual_model_expected, parameter_hash = (
+        phase11_validation._resolve_parent_source(
+            "T1", "P10_T1_E1_OPTIMIZED", upstream, phase10_manifest, tmp_path
+        )
+    )
+    assert source_dir == phase10_dir
+    assert source == p10_entry
+    assert parameter_hash == "p10-params"
+    assert manifest_expected["depth"] == 9
+    assert actual_model_expected == manifest_expected
 
 
 def test_checkpoint_round_trip_and_stale_rejection(tmp_path: Path) -> None:
@@ -345,6 +570,20 @@ def test_phase11_runner_and_validator_helpers(tmp_path: Path) -> None:
     assert errors == ["expected"]
 
 
+def test_completed_run_cannot_be_resumed_or_overwritten_implicitly(tmp_path: Path) -> None:
+    output = tmp_path / "feature_selection"
+    completed = output / "run-1"
+    completed.mkdir(parents=True)
+    with pytest.raises(ValueError, match="immutable"):
+        phase11_runner.build_phase11(
+            tmp_path / "missing-phase10",
+            output_dir=output,
+            run_id="run-1",
+            resume=True,
+            project_root=Path("."),
+        )
+
+
 def test_phase11_configuration_rejects_policy_drift(tmp_path: Path) -> None:
     isolated_root = tmp_path / "config_project"
     config_dir = isolated_root / "configs"
@@ -370,8 +609,17 @@ def test_phase11_configuration_rejects_policy_drift(tmp_path: Path) -> None:
     rejects(lambda raw: raw.__setitem__("simpler_candidate_selection", None))
     rejects(lambda raw: raw.__setitem__("compute", None))
     rejects(lambda raw: raw.__setitem__("maximum_candidate_subsets_per_track", 9))
+    rejects(lambda raw: raw.__setitem__("minimum_feature_count", 31))
+    rejects(
+        lambda raw: raw["simpler_candidate_selection"].__setitem__("maximum_ap_tolerance", 0.01)
+    )
+    rejects(
+        lambda raw: raw["outer_validation_replacement"]["complexity_tradeoff"].__setitem__(
+            "minimum_feature_reduction_fraction", 0.10
+        )
+    )
+    rejects(lambda raw: raw.__setitem__("checkpoint_each_fold", False))
 
     config_path.unlink()
     with pytest.raises(ValueError, match="Could not read"):
         load_feature_selection_settings(isolated_root)
-

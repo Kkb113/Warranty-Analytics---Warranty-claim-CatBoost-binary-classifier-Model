@@ -57,4 +57,3 @@ def load_valid_checkpoint(
     if not isinstance(payload.get("metrics"), dict) or payload.get("completed_at") is None:
         raise ValueError(f"Incomplete Phase 11 checkpoint rejected: {path}")
     return cast(dict[str, Any], payload)
-
