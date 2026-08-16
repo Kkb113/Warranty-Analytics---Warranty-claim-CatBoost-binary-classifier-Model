@@ -428,4 +428,3 @@ def test_phase11_configuration_rejects_policy_drift(tmp_path: Path) -> None:
     config_path.unlink()
     with pytest.raises(ValueError, match="Could not read"):
         load_feature_selection_settings(isolated_root)
-

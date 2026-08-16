@@ -129,4 +129,3 @@ def validate_group_membership(frame: pd.DataFrame, expected_features: set[str]) 
         or frame["target_dependent"].any()
     ):
         raise FeatureSelectionError("Unsafe feature/control membership is present.")
-

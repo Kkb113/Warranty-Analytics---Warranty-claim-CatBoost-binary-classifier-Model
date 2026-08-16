@@ -1390,4 +1390,3 @@ def validate_existing_selection(  # pragma: no cover
     from .validation import validate_selection_directory
 
     return validate_selection_directory(selection_dir, project_root=project_root)
-

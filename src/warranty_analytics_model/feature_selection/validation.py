@@ -705,4 +705,3 @@ def validate_selection_directory(  # pragma: no cover
 
 
 __all__ = ["validate_selection_directory"]
-

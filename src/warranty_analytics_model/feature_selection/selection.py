@@ -264,4 +264,3 @@ def replacement_decision(
         "complexity_tradeoff_eligible": complexity,
         "ap_improvement_eligible": direct,
     }
-

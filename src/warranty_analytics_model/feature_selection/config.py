@@ -242,4 +242,3 @@ def settings_payload(settings: FeatureSelectionSettings) -> dict[str, Any]:
         "output_directory": settings.output_directory,
         "report_directory": settings.report_directory,
     }
-

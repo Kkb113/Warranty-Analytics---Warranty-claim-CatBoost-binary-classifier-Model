@@ -56,4 +56,3 @@ def build_compute_plan(
     if single < 1:
         raise FeatureSelectionError("single_fit_threads must be positive.")
     return ComputePlan(detected, reserve, budget, workers, threads, single, workers * threads)
-
