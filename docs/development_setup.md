@@ -198,6 +198,9 @@ Phase 13 consumes an accepted Phase 12 directory explicitly. Run
 `phase13-contract-check` and `phase13-plan-check --phase12-dir <accepted-run>`
 before calibration, then use `phase13-calibrate --phase12-dir <accepted-run>`.
 The run freezes its TRAIN-derived calibrators, blend policy, and thresholds
-before opening outer VALIDATION. `phase13-validate` independently regenerates
-the evidence; TEST remains sealed until Phase 15.
+before opening outer VALIDATION. Calibration fits use bounded workers with one
+native numerical thread, and `--resume` reuses only atomic, hash-matching
+checkpoints. `phase13-validate` independently regenerates outer acceptance,
+fallback, effective score spaces, manifest, and champion evidence; TEST remains
+sealed until Phase 15.
 

@@ -170,7 +170,10 @@ settings.
 - Phase 13: TRAIN-cross-fitted probability calibration, deterministic convex
   T1/T3 blending, and frozen calibrated thresholds on the accepted Phase 12
   scores. Validation opens only after the Phase 13 freeze; no CatBoost
-  retraining, feature changes, or TEST access is permitted.
+  retraining, feature changes, or TEST access is permitted. Calibration fits
+  use bounded one-native-thread workers and resumable atomic checkpoints. The
+  independent validator rebuilds outer acceptance/fallback and rejects any
+  RAW/CALIBRATED hybrid ensemble or configuration/provenance drift.
 - Later phases: evaluation, calibration, inference, and monitoring.
 
 These boundaries preserve the Phase 0 contract and prevent infrastructure work

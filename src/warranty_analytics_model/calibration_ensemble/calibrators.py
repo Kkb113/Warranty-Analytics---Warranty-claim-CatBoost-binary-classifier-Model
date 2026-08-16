@@ -75,6 +75,8 @@ def fit_calibrator(
     target: Any,
     *,
     epsilon: float = 1.0e-6,
+    sigmoid_solver: str = "lbfgs",
+    sigmoid_max_iter: int = 1000,
     isotonic_y_min: float = 0.0,
     isotonic_y_max: float = 1.0,
     isotonic_out_of_bounds: str = "clip",
@@ -101,8 +103,8 @@ def fit_calibrator(
     elif method == "C1_SIGMOID":
         model = LogisticRegression(
             penalty=None,
-            solver="lbfgs",
-            max_iter=1000,
+            solver=sigmoid_solver,
+            max_iter=sigmoid_max_iter,
             class_weight=None,
         )
         model.fit(sigmoid_logit(p, epsilon).reshape(-1, 1), y)
@@ -112,8 +114,8 @@ def fit_calibrator(
             "identity": False,
             "coefficient": float(model.coef_[0][0]),
             "intercept": float(model.intercept_[0]),
-            "solver": "lbfgs",
-            "max_iter": 1000,
+            "solver": sigmoid_solver,
+            "max_iter": sigmoid_max_iter,
             "penalty": None,
             "class_weight": None,
         }

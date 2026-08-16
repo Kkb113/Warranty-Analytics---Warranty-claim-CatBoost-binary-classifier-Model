@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
 
@@ -16,6 +18,93 @@ CALIBRATION_METHODS = ("C0_NONE", "C1_SIGMOID", "C2_ISOTONIC")
 ENSEMBLE_WEIGHTS = tuple(round(index / 10.0, 1) for index in range(11))
 CALIBRATION_COMPLEXITY = {method: index for index, method in enumerate(CALIBRATION_METHODS)}
 PHASE13_ERROR = RuntimeError
+
+# This payload is deliberately duplicated as a Python constant.  The YAML file
+# is an operator-facing copy, while this immutable value is the fail-closed
+# experiment contract used by every reader and validator.
+LOCKED_CONFIGURATION: dict[str, Any] = {
+    "tracks": ["T1", "T3"],
+    "calibration": {
+        "methods": ["C0_NONE", "C1_SIGMOID", "C2_ISOTONIC"],
+        "sigmoid": {
+            "epsilon": 0.000001,
+            "penalty": None,
+            "solver": "lbfgs",
+            "max_iter": 1000,
+            "class_weight": None,
+        },
+        "isotonic": {
+            "y_min": 0.0,
+            "y_max": 1.0,
+            "out_of_bounds": "clip",
+            "minimum_training_positives": 20,
+            "minimum_training_negatives": 100,
+            "minimum_unique_probabilities": 50,
+        },
+        "selection": {
+            "max_ap_drop": 0.001,
+            "max_min_fold_ap_drop": 0.005,
+            "max_roc_auc_drop": 0.005,
+            "none_log_loss_tolerance": 0.0005,
+            "none_brier_tolerance": 0.0002,
+            "selection_tie_tolerance": 0.000001,
+        },
+    },
+    "reliability": {"bins": 10, "method": "deterministic_equal_frequency"},
+    "ensemble": {
+        "t1_weights": [round(index / 10.0, 1) for index in range(11)],
+        "ranking_route": {
+            "minimum_ap_improvement": 0.001,
+            "max_min_fold_ap_drop": 0.005,
+            "max_roc_auc_drop": 0.005,
+        },
+        "calibration_route": {
+            "max_ap_drop": 0.0005,
+            "max_min_fold_ap_drop": 0.005,
+            "max_roc_auc_drop": 0.005,
+            "minimum_log_loss_improvement": 0.002,
+            "minimum_brier_improvement": 0.0005,
+        },
+    },
+    "threshold": {
+        "start": 0.001,
+        "stop": 0.999,
+        "step": 0.001,
+        "objective": "MCC",
+        "tie_tolerance": 1.0e-12,
+    },
+    "validation": {
+        "calibration_max_ap_drop": 0.0005,
+        "calibration_max_roc_auc_drop": 0.005,
+        "calibration_max_log_loss_regression": 0.0005,
+        "calibration_max_brier_regression": 0.0002,
+        "calibration_min_log_loss_improvement": 0.0005,
+        "calibration_min_brier_improvement": 0.0002,
+        "ensemble_ap_improvement_tolerance": 0.000001,
+        "ensemble_max_ap_drop_for_calibration_route": 0.0005,
+        "ensemble_max_roc_auc_drop": 0.005,
+        "ensemble_max_log_loss_regression": 0.003,
+        "ensemble_min_log_loss_improvement": 0.002,
+        "ensemble_min_brier_improvement": 0.0005,
+    },
+    "compute": {
+        "reserve_logical_threads": 2,
+        "preferred_calibration_workers": 4,
+        "preferred_catboost_replay_threads": 16,
+    },
+    "checkpoint_each_calibration_fold": True,
+    "resume_supported": True,
+    "output_directory": "artifacts/calibration_ensemble",
+    "report_directory": "reports/phase13_calibration_ensemble",
+}
+
+
+def locked_configuration_sha256() -> str:
+    return hashlib.sha256(
+        json.dumps(LOCKED_CONFIGURATION, sort_keys=True, separators=(",", ":"), default=str).encode(
+            "utf-8"
+        )
+    ).hexdigest()
 
 
 class CalibrationEnsembleError(ValueError):
@@ -42,6 +131,7 @@ class CalibrationEnsembleSettings:
     selection_max_roc_auc_drop: float
     none_log_loss_tolerance: float
     none_brier_tolerance: float
+    selection_tie_tolerance: float
     ranking_minimum_ap_improvement: float
     ranking_max_min_fold_ap_drop: float
     ranking_max_roc_auc_drop: float
@@ -107,6 +197,10 @@ def load_calibration_ensemble_settings(
         raise CalibrationEnsembleError(f"Could not read Phase 13 configuration: {path}") from exc
     root_payload = _mapping(raw, "configuration")
     payload = _mapping(root_payload.get("phase13_calibration_ensemble"), "configuration")
+    if payload != LOCKED_CONFIGURATION:
+        raise CalibrationEnsembleError(
+            "Phase 13 configuration drifted from the locked experimental payload."
+        )
     tracks = tuple(str(item) for item in payload.get("tracks", []))
     if tracks != TRACKS:
         raise CalibrationEnsembleError("Phase 13 tracks are not exactly T1/T3.")
@@ -166,6 +260,9 @@ def load_calibration_ensemble_settings(
             selection.get("none_log_loss_tolerance"), "NONE log-loss tolerance"
         ),
         none_brier_tolerance=_number(selection.get("none_brier_tolerance"), "NONE Brier tolerance"),
+        selection_tie_tolerance=_number(
+            selection.get("selection_tie_tolerance"), "selection tie tolerance"
+        ),
         ranking_minimum_ap_improvement=_number(
             ranking.get("minimum_ap_improvement"), "ensemble ranking AP improvement"
         ),
@@ -248,38 +345,20 @@ def load_calibration_ensemble_settings(
         preferred_catboost_replay_threads=_positive_int(
             compute.get("preferred_catboost_replay_threads"), "CatBoost replay threads"
         ),
-        checkpoint_each_calibration_fold=bool(payload.get("checkpoint_each_calibration_fold")),
-        resume_supported=bool(payload.get("resume_supported")),
-        output_directory="artifacts/calibration_ensemble",
-        report_directory="reports/phase13_calibration_ensemble",
+        checkpoint_each_calibration_fold=payload["checkpoint_each_calibration_fold"],
+        resume_supported=payload["resume_supported"],
+        output_directory=str(payload["output_directory"]),
+        report_directory=str(payload["report_directory"]),
     )
 
 
 def settings_payload(settings: CalibrationEnsembleSettings) -> dict[str, Any]:
     """Return a stable configuration snapshot for manifests."""
 
-    return {
-        "phase": 13,
-        "version": PHASE13_VERSION,
-        "tracks": list(settings.tracks),
-        "calibration_methods": list(settings.calibration_methods),
-        "ensemble_weights": list(settings.ensemble_weights),
-        "reliability_bins": settings.reliability_bins,
-        "threshold": {
-            "start": settings.threshold_start,
-            "stop": settings.threshold_stop,
-            "step": settings.threshold_step,
-            "objective": "MCC",
-            "tie_tolerance": settings.threshold_tie_tolerance,
-        },
-        "compute": {
-            "reserve_logical_threads": settings.reserve_logical_threads,
-            "preferred_calibration_workers": settings.preferred_calibration_workers,
-            "preferred_catboost_replay_threads": settings.preferred_catboost_replay_threads,
-        },
-        "checkpoint_each_calibration_fold": settings.checkpoint_each_calibration_fold,
-        "resume_supported": settings.resume_supported,
-    }
+    payload = cast(dict[str, Any], json.loads(json.dumps(LOCKED_CONFIGURATION, sort_keys=True)))
+    payload.update({"phase": 13, "version": PHASE13_VERSION})
+    payload["configuration_sha256"] = locked_configuration_sha256()
+    return payload
 
 
 __all__ = [
@@ -288,8 +367,10 @@ __all__ = [
     "CalibrationEnsembleError",
     "CalibrationEnsembleSettings",
     "ENSEMBLE_WEIGHTS",
+    "LOCKED_CONFIGURATION",
     "PHASE13_VERSION",
     "TRACKS",
+    "locked_configuration_sha256",
     "load_calibration_ensemble_settings",
     "settings_payload",
 ]

@@ -7,7 +7,11 @@ from typing import Any
 
 import pandas as pd
 
-from .config import CALIBRATION_COMPLEXITY
+from .config import (
+    CALIBRATION_COMPLEXITY,
+    CalibrationEnsembleSettings,
+    load_calibration_ensemble_settings,
+)
 
 TOLERANCE = 1.0e-6
 
@@ -52,15 +56,25 @@ def compare_champion_candidates(
     )
 
 
-def select_phase13_champion(candidates: list[dict[str, Any]]) -> str:
+def select_phase13_champion(
+    candidates: list[dict[str, Any]], settings: CalibrationEnsembleSettings | None = None
+) -> str:
     if not candidates:
         raise ValueError("No Phase 13 candidates are available.")
-    return str(sorted(candidates, key=cmp_to_key(compare_champion_candidates))[0]["candidate_id"])
+    locked = settings or load_calibration_ensemble_settings()
+
+    def comparator(left: dict[str, Any], right: dict[str, Any]) -> int:
+        return compare_champion_candidates(left, right, tolerance=locked.selection_tie_tolerance)
+
+    return str(sorted(candidates, key=cmp_to_key(comparator))[0]["candidate_id"])
 
 
-def select_calibration_method(summary: pd.DataFrame) -> dict[str, Any]:
+def select_calibration_method(
+    summary: pd.DataFrame, settings: CalibrationEnsembleSettings | None = None
+) -> dict[str, Any]:
     if summary.empty:
         raise ValueError("Calibration summary is empty.")
+    locked = settings or load_calibration_ensemble_settings()
     none = summary.loc[summary["calibration_method"] == "C0_NONE"]
     if len(none) != 1:
         raise ValueError("Calibration summary must contain exactly one NONE baseline.")
@@ -72,10 +86,12 @@ def select_calibration_method(summary: pd.DataFrame) -> dict[str, Any]:
         if method != "C0_NONE":
             eligible = eligible and (
                 float(row["pooled_average_precision"])
-                >= float(baseline["pooled_average_precision"]) - 0.001
+                >= float(baseline["pooled_average_precision"]) - locked.selection_max_ap_drop
                 and float(row["min_fold_average_precision"])
-                >= float(baseline["min_fold_average_precision"]) - 0.005
-                and float(row["pooled_roc_auc"]) >= float(baseline["pooled_roc_auc"]) - 0.005
+                >= float(baseline["min_fold_average_precision"])
+                - locked.selection_max_min_fold_ap_drop
+                and float(row["pooled_roc_auc"])
+                >= float(baseline["pooled_roc_auc"]) - locked.selection_max_roc_auc_drop
             )
         item = {**row, "eligible": eligible}
         if eligible:
@@ -98,7 +114,10 @@ def select_calibration_method(summary: pd.DataFrame) -> dict[str, Any]:
     if winner["calibration_method"] != "C0_NONE":
         log_loss_gain = float(baseline["pooled_log_loss"]) - float(winner["pooled_log_loss"])
         brier_gain = float(baseline["pooled_brier_score"]) - float(winner["pooled_brier_score"])
-        if log_loss_gain < 0.0005 and brier_gain < 0.0002:
+        if (
+            log_loss_gain < locked.none_log_loss_tolerance
+            and brier_gain < locked.none_brier_tolerance
+        ):
             winner = baseline
             none_preferred = True
     return {
@@ -111,7 +130,9 @@ def select_calibration_method(summary: pd.DataFrame) -> dict[str, Any]:
     }
 
 
-def _ensemble_cmp(left: dict[str, Any], right: dict[str, Any]) -> int:
+def _ensemble_cmp(
+    left: dict[str, Any], right: dict[str, Any], *, tolerance: float = TOLERANCE
+) -> int:
     for metric, higher in (
         ("pooled_average_precision", True),
         ("min_fold_average_precision", True),
@@ -119,7 +140,9 @@ def _ensemble_cmp(left: dict[str, Any], right: dict[str, Any]) -> int:
         ("pooled_log_loss", False),
         ("pooled_brier_score", False),
     ):
-        result = _compare(float(left[metric]), float(right[metric]), higher=higher)
+        result = _compare(
+            float(left[metric]), float(right[metric]), higher=higher, tolerance=tolerance
+        )
         if result:
             return result
     left_weight = float(left["t1_weight"])
@@ -133,33 +156,47 @@ def _ensemble_cmp(left: dict[str, Any], right: dict[str, Any]) -> int:
     return -1 if left_weight < right_weight else (1 if left_weight > right_weight else 0)
 
 
-def select_ensemble(summary: pd.DataFrame) -> dict[str, Any]:
+def select_ensemble(
+    summary: pd.DataFrame, settings: CalibrationEnsembleSettings | None = None
+) -> dict[str, Any]:
     if summary.empty or set(float(value) for value in summary["t1_weight"]) != {
         index / 10.0 for index in range(11)
     }:
         raise ValueError("Ensemble summary must contain exactly 11 controlled weights.")
+    locked = settings or load_calibration_ensemble_settings()
     rows = summary.to_dict("records")
     endpoints = [row for row in rows if float(row["t1_weight"]) in (0.0, 1.0)]
-    best_single = sorted(endpoints, key=cmp_to_key(_ensemble_cmp))[0]
+
+    def comparator(left: dict[str, Any], right: dict[str, Any]) -> int:
+        return _ensemble_cmp(left, right, tolerance=locked.selection_tie_tolerance)
+
+    best_single = sorted(endpoints, key=cmp_to_key(comparator))[0]
     blends = [row for row in rows if 0.0 < float(row["t1_weight"]) < 1.0]
     accepted: list[dict[str, Any]] = []
     for row in blends:
         route_a = (
             float(row["pooled_average_precision"])
-            > float(best_single["pooled_average_precision"]) + 0.001
+            > float(best_single["pooled_average_precision"]) + locked.ranking_minimum_ap_improvement
             and float(row["min_fold_average_precision"])
-            >= float(best_single["min_fold_average_precision"]) - 0.005
-            and float(row["pooled_roc_auc"]) >= float(best_single["pooled_roc_auc"]) - 0.005
+            >= float(best_single["min_fold_average_precision"])
+            - locked.ranking_max_min_fold_ap_drop
+            and float(row["pooled_roc_auc"])
+            >= float(best_single["pooled_roc_auc"]) - locked.ranking_max_roc_auc_drop
         )
         route_b = (
             float(row["pooled_average_precision"])
-            >= float(best_single["pooled_average_precision"]) - 0.0005
+            >= float(best_single["pooled_average_precision"]) - locked.calibration_route_max_ap_drop
             and float(row["min_fold_average_precision"])
-            >= float(best_single["min_fold_average_precision"]) - 0.005
-            and float(row["pooled_roc_auc"]) >= float(best_single["pooled_roc_auc"]) - 0.005
-            and float(row["pooled_log_loss"]) <= float(best_single["pooled_log_loss"]) - 0.002
+            >= float(best_single["min_fold_average_precision"])
+            - locked.calibration_route_max_min_fold_ap_drop
+            and float(row["pooled_roc_auc"])
+            >= float(best_single["pooled_roc_auc"]) - locked.calibration_route_max_roc_auc_drop
+            and float(row["pooled_log_loss"])
+            <= float(best_single["pooled_log_loss"])
+            - locked.calibration_route_min_log_loss_improvement
             and float(row["pooled_brier_score"])
-            <= float(best_single["pooled_brier_score"]) - 0.0005
+            <= float(best_single["pooled_brier_score"])
+            - locked.calibration_route_min_brier_improvement
         )
         if route_a or route_b:
             accepted.append({**row, "route_a": route_a, "route_b": route_b})
@@ -172,7 +209,7 @@ def select_ensemble(summary: pd.DataFrame) -> dict[str, Any]:
             "selection_route": "NONE",
             "decision_trace": {"best_single": best_single, "accepted_blends": []},
         }
-    winner = sorted(accepted, key=cmp_to_key(_ensemble_cmp))[0]
+    winner = sorted(accepted, key=cmp_to_key(comparator))[0]
     return {
         "selected_policy": "TRUE_BLEND",
         "selected_weight": float(winner["t1_weight"]),

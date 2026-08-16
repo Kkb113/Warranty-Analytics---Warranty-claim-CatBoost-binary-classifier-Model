@@ -42,6 +42,7 @@ mart = [
 modeling = [
     "catboost>=1.2.10,<2",
     "scikit-learn>=1.5,<2",
+    "threadpoolctl>=3.5,<4",
 ]
 optimization = [
     "optuna>=4,<5",

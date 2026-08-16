@@ -18,3 +18,4 @@ phase13:
     maximum_new_validation_score_sets: 3
   test:
     forbidden_until_phase: 15
+  experimental_configuration_sha256: 51e618eebf0aef87ba93731ff1be67038a632216e076de8eb7fa81012074ba9f

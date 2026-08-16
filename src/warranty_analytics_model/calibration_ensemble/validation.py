@@ -20,13 +20,25 @@ from ..baseline_model.config import load_baseline_settings
 from ..catboost_optimization.config import TRACK_TO_EXPERIMENT
 from ..catboost_optimization.input import load_validation_targets_after_freeze
 from ..catboost_optimization.provenance import canonical_json_sha256, sha256_file
+from ..imbalance_threshold.metrics import threshold_metrics
 from .calibration_folds import calibration_fold_assignments, calibration_fold_manifest
 from .calibration_metrics import probability_metrics
 from .calibrators import apply_calibrator, calibrator_sha, fit_calibrator
-from .config import CALIBRATION_METHODS, TRACKS, load_calibration_ensemble_settings
+from .config import (
+    CALIBRATION_METHODS,
+    TRACKS,
+    load_calibration_ensemble_settings,
+    locked_configuration_sha256,
+)
 from .ensemble import evaluate_ensemble_weights
-from .input import KEY, load_phase12_lock
-from .selection import select_calibration_method, select_ensemble
+from .input import KEY, TARGET, load_phase12_lock
+from .selection import (
+    accept_ensemble,
+    accept_track_calibration,
+    select_calibration_method,
+    select_ensemble,
+    select_phase13_champion,
+)
 from .thresholds import build_threshold_curve, select_mcc_threshold
 
 
@@ -176,6 +188,8 @@ def _validate_calibration(
                     train["high_cost_probability"],
                     train["target"],
                     epsilon=settings.sigmoid_epsilon,
+                    sigmoid_solver=settings.sigmoid_solver,
+                    sigmoid_max_iter=settings.sigmoid_max_iter,
                     isotonic_y_min=settings.isotonic_y_min,
                     isotonic_y_max=settings.isotonic_y_max,
                     isotonic_out_of_bounds=settings.isotonic_out_of_bounds,
@@ -248,6 +262,26 @@ def _validate_calibration(
                         "eligibility_reason": reason,
                     }
                 )
+            else:
+                summaries.append(
+                    {
+                        "track": track,
+                        "calibration_method": method,
+                        "pooled_average_precision": 0.0,
+                        "mean_fold_average_precision": 0.0,
+                        "min_fold_average_precision": 0.0,
+                        "pooled_roc_auc": 0.0,
+                        "pooled_log_loss": float("inf"),
+                        "pooled_brier_score": float("inf"),
+                        "pooled_ece": float("inf"),
+                        "pooled_mce": float("inf"),
+                        "row_count": 0,
+                        "positive_count": 0,
+                        "negative_count": 0,
+                        "eligible": False,
+                        "eligibility_reason": reason,
+                    }
+                )
             selected_method = str(selections.get(track, {}).get("selected_calibration_method", ""))
             if method == selected_method and predictions:
                 selected_frames[track] = pd.concat(predictions, ignore_index=True)
@@ -256,6 +290,8 @@ def _validate_calibration(
                     track_source["high_cost_probability"],
                     track_source["target"],
                     epsilon=settings.sigmoid_epsilon,
+                    sigmoid_solver=settings.sigmoid_solver,
+                    sigmoid_max_iter=settings.sigmoid_max_iter,
                     isotonic_y_min=settings.isotonic_y_min,
                     isotonic_y_max=settings.isotonic_y_max,
                     isotonic_out_of_bounds=settings.isotonic_out_of_bounds,
@@ -265,7 +301,7 @@ def _validate_calibration(
                     input_sha=_calibration_input_sha(track_source),
                 )
                 final_payloads[track] = final_payload
-        expected_selection = select_calibration_method(pd.DataFrame(summaries))
+        expected_selection = select_calibration_method(pd.DataFrame(summaries), settings)
         if expected_selection.get("selected_calibration_method") != selections.get(track, {}).get(
             "selected_calibration_method"
         ):
@@ -292,6 +328,277 @@ def _validate_calibration(
             ):
                 errors.append(f"Phase 13 calibration summary differs for {track}/{column}.")
     return selected_frames, final_payloads
+
+
+def _compare_payload(
+    expected: Any, actual: Any, *, label: str, tolerance: float = 1.0e-8
+) -> list[str]:
+    """Compare JSON payloads without trusting any persisted decision fields."""
+
+    if isinstance(expected, dict) and isinstance(actual, dict):
+        nested_errors: list[str] = []
+        if set(expected) != set(actual):
+            return [f"{label} keys differ."]
+        for key in sorted(expected):
+            nested_errors.extend(
+                _compare_payload(
+                    expected[key], actual[key], label=f"{label}.{key}", tolerance=tolerance
+                )
+            )
+        return nested_errors
+    if isinstance(expected, list) and isinstance(actual, list):
+        if len(expected) != len(actual):
+            return [f"{label} length differs."]
+        list_errors: list[str] = []
+        for index, (left, right) in enumerate(zip(expected, actual, strict=True)):
+            list_errors.extend(
+                _compare_payload(left, right, label=f"{label}[{index}]", tolerance=tolerance)
+            )
+        return list_errors
+    if isinstance(expected, bool) or isinstance(actual, bool):
+        return (
+            [] if expected == actual and type(expected) is type(actual) else [f"{label} differs."]
+        )
+    if isinstance(expected, (int, float)) and isinstance(actual, (int, float)):
+        return [] if _close(expected, actual, tolerance) else [f"{label} differs."]
+    return [] if expected == actual else [f"{label} differs."]
+
+
+def _reconstruct_outer_validation(
+    directory: Path,
+    lock: Any,
+    settings: Any,
+    final_payloads: dict[str, dict[str, Any]],
+    threshold_policy: dict[str, Any],
+    ensemble_selection: dict[str, Any],
+    root: Path,
+) -> dict[str, Any]:
+    """Independently rebuild every outer-VALIDATION decision and artifact."""
+
+    phase10 = lock.phase12_inputs.phase10_inputs
+    validation_targets, validation_audit = load_validation_targets_after_freeze(
+        phase10, study_frozen=True
+    )
+    validation_frame = phase10.development.loc[phase10.development["split"] == "VALIDATION"].copy()
+    target_map = validation_targets.set_index(KEY)[TARGET]
+    baseline_settings = load_baseline_settings(root)
+    track_meta: dict[str, dict[str, Any]] = {}
+    prediction_rows: list[dict[str, Any]] = []
+    frozen_probabilities: dict[str, np.ndarray] = {}
+    effective_single_rows: list[dict[str, Any]] = []
+    warnings: list[str] = []
+    for track in TRACKS:
+        experiment = TRACK_TO_EXPERIMENT[track]
+        feature_set = phase10.feature_sets[experiment]
+        raw = predict_probabilities(
+            load_model(lock.phase12_dir / str(lock.effective_models[track]["model_file"])),
+            adapt_matrix(validation_frame, feature_set, baseline_settings),
+            feature_set,
+        )
+        keys = validation_frame[KEY].astype(int).to_numpy()
+        y = validation_frame[KEY].map(target_map).astype("int8").to_numpy()
+        raw_metrics = probability_metrics(y, raw, bins=settings.reliability_bins, keys=keys)
+        raw_threshold = float(lock.effective_models[track]["technical_threshold"])
+        raw_metrics.update(threshold_metrics(y, raw, raw_threshold))
+        calibrated = apply_calibrator(final_payloads[track], raw)
+        calibrated_metrics = probability_metrics(
+            y, calibrated, bins=settings.reliability_bins, keys=keys
+        )
+        selected_threshold = float(threshold_policy["candidates"][track]["threshold"])
+        calibrated_metrics.update(threshold_metrics(y, calibrated, selected_threshold))
+        acceptance = accept_track_calibration(raw_metrics, calibrated_metrics, settings)
+        accepted = bool(acceptance.get("accepted"))
+        if not accepted and final_payloads[track].get("method") != "NONE":
+            warnings.append("CALIBRATION_REJECTED_ON_VALIDATION")
+        effective = calibrated if accepted else raw
+        effective_threshold = selected_threshold if accepted else raw_threshold
+        effective_space = "CALIBRATED_PROBABILITY" if accepted else "RAW_UNCALIBRATED_PROBABILITY"
+        effective_metrics = calibrated_metrics if accepted else raw_metrics
+        method = str(final_payloads[track].get("method"))
+        candidate_id = (
+            f"P13_{track}_CALIBRATED_{method}"
+            if accepted and method != "NONE"
+            else str(lock.effective_models[track]["candidate_id"])
+        )
+        frozen_probabilities[track] = calibrated
+        track_meta[track] = {
+            "candidate_id": candidate_id,
+            "accepted": accepted,
+            "calibration_acceptance": acceptance,
+            "threshold": effective_threshold,
+            "score_space": effective_space,
+            "raw_metrics": raw_metrics,
+            "calibrated_metrics": calibrated_metrics,
+            "effective_metrics": effective_metrics,
+        }
+        effective_single_rows.append(
+            {
+                "candidate_id": candidate_id,
+                "validation_metrics": effective_metrics,
+                "complexity_order": 1 if accepted else 0,
+                "feature_count": int(lock.effective_models[track].get("feature_count", 0)),
+            }
+        )
+        for key, raw_value, calibrated_value, effective_value in zip(
+            keys, raw, calibrated, effective, strict=True
+        ):
+            prediction_rows.append(
+                {
+                    KEY: int(key),
+                    "track": track,
+                    "candidate_id": candidate_id,
+                    "raw_probability": float(raw_value),
+                    "calibrated_probability": float(calibrated_value),
+                    "effective_probability": float(effective_value),
+                }
+            )
+
+    ensemble_candidate: dict[str, Any] | None = None
+    ensemble_acceptance: dict[str, Any] | None = None
+    ensemble_payload: dict[str, Any] | None = None
+    if ensemble_selection.get("selected_policy") == "TRUE_BLEND":
+        weight = float(ensemble_selection["selected_weight"])
+        probability = (
+            weight * frozen_probabilities["T1"] + (1.0 - weight) * frozen_probabilities["T3"]
+        )
+        y = validation_frame[KEY].map(target_map).astype("int8").to_numpy()
+        metrics = probability_metrics(
+            y, probability, bins=settings.reliability_bins, keys=validation_frame[KEY]
+        )
+        selected_threshold = float(threshold_policy["candidates"]["ENSEMBLE"]["threshold"])
+        metrics.update(threshold_metrics(y, probability, selected_threshold))
+        best_single = sorted(
+            effective_single_rows,
+            key=lambda item: (
+                -float(item["validation_metrics"]["average_precision"]),
+                str(item["candidate_id"]),
+            ),
+        )[0]
+        component_rejections = [
+            track
+            for track in TRACKS
+            if final_payloads[track].get("method") != "NONE" and not track_meta[track]["accepted"]
+        ]
+        ensemble_acceptance = accept_ensemble(metrics, best_single["validation_metrics"], settings)
+        if component_rejections:
+            ensemble_acceptance = {
+                **ensemble_acceptance,
+                "accepted": False,
+                "reason": "COMPONENT_CALIBRATION_REJECTED",
+                "component_rejections": component_rejections,
+            }
+        if not ensemble_acceptance["accepted"]:
+            warnings.append("ENSEMBLE_REJECTED_ON_VALIDATION")
+        else:
+            ensemble_candidate = {
+                "candidate_id": f"P13_ENSEMBLE_W{int(round(weight * 10)):02d}",
+                "validation_metrics": metrics,
+                "complexity_order": 2,
+                "feature_count": sum(
+                    int(lock.effective_models[track].get("feature_count", 0)) for track in TRACKS
+                ),
+                "t1_weight": weight,
+                "t3_weight": round(1.0 - weight, 1),
+                "threshold": selected_threshold,
+                "score_space": "CALIBRATED_ENSEMBLE_PROBABILITY",
+            }
+        ensemble_payload = {
+            "selected_policy": ensemble_selection.get("selected_policy"),
+            "selected_weight": weight,
+            "metrics": metrics,
+            "acceptance": ensemble_acceptance,
+            "score_space": "CALIBRATED_ENSEMBLE_PROBABILITY",
+            "component_calibration": {
+                track: {
+                    "method": final_payloads[track].get("method"),
+                    "calibrator_sha": final_payloads[track].get("calibrator_sha"),
+                    "validation_accepted": bool(track_meta[track]["accepted"]),
+                }
+                for track in TRACKS
+            },
+        }
+    validation_predictions = pd.DataFrame(prediction_rows)
+    candidates = effective_single_rows + ([ensemble_candidate] if ensemble_candidate else [])
+    champion = select_phase13_champion(candidates, settings)
+    metric_payload: dict[str, Any] = {
+        "phase": 13,
+        "tracks": track_meta,
+        "ensemble": ensemble_payload,
+        "phase13_development_champion": champion,
+        "warnings": sorted(set(warnings)),
+    }
+    entries: list[dict[str, Any]] = []
+    for track in TRACKS:
+        source = lock.effective_models[track]
+        meta = track_meta[track]
+        entries.append(
+            {
+                "candidate_id": meta["candidate_id"],
+                "candidate_type": "SINGLE_TRACK",
+                "track": track,
+                "source_phase12_candidate_id": source.get("candidate_id"),
+                "source_model_sha256": source.get("model_sha256"),
+                "model_file": source.get("model_file"),
+                "feature_count": source.get("feature_count"),
+                "feature_set_sha256": source.get("feature_set_sha256"),
+                "feature_list_sha256": source.get("feature_list_sha256"),
+                "imbalance_strategy": source.get("selected_imbalance_strategy"),
+                "calibration_method": final_payloads[track].get("method"),
+                "calibrator_sha": final_payloads[track].get("calibrator_sha"),
+                "score_space": meta["score_space"],
+                "technical_threshold": meta["threshold"],
+                "validation_metrics": meta["effective_metrics"],
+                "acceptance": meta["calibration_acceptance"],
+            }
+        )
+    if ensemble_candidate:
+        entries.append(
+            {
+                "candidate_id": ensemble_candidate["candidate_id"],
+                "candidate_type": "ENSEMBLE",
+                "track": "T1_T3",
+                "source_phase12_candidate_ids": {
+                    track: lock.effective_models[track].get("candidate_id") for track in TRACKS
+                },
+                "source_model_sha256": {
+                    track: lock.effective_models[track].get("model_sha256") for track in TRACKS
+                },
+                "component_calibration": {
+                    track: {
+                        "method": final_payloads[track].get("method"),
+                        "calibrator_sha": final_payloads[track].get("calibrator_sha"),
+                    }
+                    for track in TRACKS
+                },
+                "t1_weight": ensemble_candidate["t1_weight"],
+                "t3_weight": ensemble_candidate["t3_weight"],
+                "score_space": ensemble_candidate["score_space"],
+                "technical_threshold": ensemble_candidate["threshold"],
+                "validation_metrics": ensemble_candidate["validation_metrics"],
+                "acceptance": ensemble_acceptance,
+            }
+        )
+    effective_manifest = {
+        "phase": 13,
+        "phase12_run_id": lock.run_id,
+        "phase12_dir": str(lock.phase12_dir),
+        "models": entries,
+        "selected_ensemble_policy": ensemble_selection.get("selected_policy"),
+        "selected_ensemble_weight": ensemble_selection.get("selected_weight"),
+        "effective_ensemble_policy": "TRUE_BLEND" if ensemble_candidate else "BEST_SINGLE",
+        "threshold_policy_sha256": canonical_json_sha256(threshold_policy),
+    }
+    return {
+        "validation_targets": validation_targets,
+        "validation_audit": validation_audit,
+        "predictions": validation_predictions,
+        "metrics": metric_payload,
+        "track_meta": track_meta,
+        "ensemble_candidate": ensemble_candidate,
+        "ensemble_acceptance": ensemble_acceptance,
+        "champion": champion,
+        "effective_manifest": effective_manifest,
+    }
 
 
 def validate_existing_phase13(
@@ -343,6 +650,8 @@ def validate_existing_phase13(
         manifest = _read_json(directory / "phase13_manifest.json")
         if manifest.get("phase") != 13 or not manifest.get("run_id"):
             errors.append("Phase 13 manifest is not a valid run.")
+        if manifest.get("configuration_sha256") != locked_configuration_sha256():
+            errors.append("Phase 13 configuration provenance differs.")
         errors.extend(_validate_artifact_hashes(directory, manifest))
         errors.extend(_validate_test_seal(manifest, "Phase 13 manifest"))
         audit = _read_json(directory / "target_access_audit.json")
@@ -351,10 +660,18 @@ def validate_existing_phase13(
             errors.append("Phase 13 accessed VALIDATION targets before freeze.")
         freeze = _read_json(directory / "phase13_freeze.json")
         freeze_copy = {
-            key: value for key, value in freeze.items() if key != "phase13_freeze_sha256"
+            key: value for key, value in freeze.items() if key != "phase13_freeze_content_sha256"
         }
-        if canonical_json_sha256(freeze_copy) != freeze.get("phase13_freeze_sha256"):
-            errors.append("Phase 13 freeze hash differs.")
+        if canonical_json_sha256(freeze_copy) != freeze.get("phase13_freeze_content_sha256"):
+            errors.append("Phase 13 freeze content hash differs.")
+        if manifest.get("phase13_freeze_file_sha256") != sha256_file(
+            directory / "phase13_freeze.json"
+        ):
+            errors.append("Phase 13 freeze file hash differs.")
+        if manifest.get("phase13_freeze_content_sha256") != freeze.get(
+            "phase13_freeze_content_sha256"
+        ):
+            errors.append("Phase 13 freeze content provenance differs.")
         if freeze.get("outer_validation_accessed") is not False:
             errors.append("Phase 13 freeze outer-validation flag was changed.")
         errors.extend(_validate_test_seal(freeze, "Phase 13 freeze"))
@@ -445,7 +762,7 @@ def validate_existing_phase13(
             ):
                 errors.append(f"Phase 13 ensemble summary differs: {column}.")
         selection = _read_json(directory / "ensemble_selection.json")
-        expected_selection = select_ensemble(expected_summary)
+        expected_selection = select_ensemble(expected_summary, settings)
         if selection.get("selected_policy") != expected_selection.get(
             "selected_policy"
         ) or not _close(
@@ -489,66 +806,148 @@ def validate_existing_phase13(
             ):
                 errors.append(f"Phase 13 threshold selection differs for {track}.")
 
-        # Reproduce outer validation probabilities after the freeze gate.  This also
-        # verifies that persisted validation rows were not fabricated or reordered.
-        phase10 = lock.phase12_inputs.phase10_inputs
-        validation_targets, _ = load_validation_targets_after_freeze(phase10, study_frozen=True)
-        validation_frame = phase10.development.loc[
-            phase10.development["split"] == "VALIDATION"
-        ].copy()
-        baseline_settings = load_baseline_settings(root)
-        persisted_validation = pd.read_parquet(directory / "validation_predictions.parquet")
-        for track in TRACKS:
-            experiment = TRACK_TO_EXPERIMENT[track]
-            feature_set = phase10.feature_sets[experiment]
-            raw = predict_probabilities(
-                load_model(lock.phase12_dir / str(lock.effective_models[track]["model_file"])),
-                adapt_matrix(validation_frame, feature_set, baseline_settings),
-                feature_set,
+        if selection.get("selected_policy") == "TRUE_BLEND":
+            selected_weight = float(selection["selected_weight"])
+            ensemble_rows = expected_predictions.loc[
+                expected_predictions["t1_weight"] == selected_weight
+            ].copy()
+            ensemble_candidate_id = f"P13_ENSEMBLE_W{int(round(selected_weight * 10)):02d}"
+            expected_ensemble_curve = build_threshold_curve(
+                ensemble_rows["target"],
+                ensemble_rows["ensemble_probability"],
+                candidate_id=ensemble_candidate_id,
+                score_space="CALIBRATED_ENSEMBLE_PROBABILITY",
+                start=settings.threshold_start,
+                stop=settings.threshold_stop,
+                step=settings.threshold_step,
             )
-            payload = _read_json(directory / "calibrators" / f"{track.lower()}.json")
-            calibrated = apply_calibrator(payload, raw)
-            actual = (
-                persisted_validation.loc[persisted_validation["track"] == track]
-                .sort_values(KEY)
-                .reset_index(drop=True)
-            )
-            expected = (
-                pd.DataFrame(
-                    {
-                        KEY: validation_frame[KEY].astype(int).to_numpy(),
-                        "track": track,
-                        "candidate_id": actual["candidate_id"].to_numpy()
-                        if len(actual) == len(validation_frame)
-                        else "",
-                        "raw_probability": raw,
-                        "calibrated_probability": calibrated,
-                        "effective_probability": actual["effective_probability"].to_numpy()
-                        if len(actual) == len(validation_frame)
-                        else calibrated,
-                    }
+            actual_ensemble_curve = curve.loc[
+                curve["candidate_id"] == ensemble_candidate_id
+            ].reset_index(drop=True)
+            errors.extend(
+                _compare_frame(
+                    expected_ensemble_curve,
+                    actual_ensemble_curve,
+                    list(expected_ensemble_curve.columns),
+                    tolerance=1.0e-12,
+                    label="threshold curve ENSEMBLE",
                 )
-                .sort_values(KEY)
-                .reset_index(drop=True)
             )
-            if len(actual) != len(expected):
-                errors.append(f"Phase 13 validation row count differs for {track}.")
-            else:
-                for column in [KEY, "raw_probability", "calibrated_probability"]:
-                    if column == KEY:
-                        if not actual[column].equals(expected[column]):
-                            errors.append(f"Phase 13 validation keys differ for {track}.")
-                    elif not np.allclose(
-                        actual[column].to_numpy(float),
-                        expected[column].to_numpy(float),
-                        atol=1.0e-10,
-                        rtol=0,
-                    ):
-                        errors.append(f"Phase 13 validation probabilities differ for {track}.")
-        if len(validation_targets) != int(
+            selected = select_mcc_threshold(
+                expected_ensemble_curve, settings.threshold_tie_tolerance
+            )
+            if policy.get("candidates", {}).get("ENSEMBLE", {}).get("threshold") != selected.get(
+                "threshold"
+            ):
+                errors.append("Phase 13 threshold selection differs for ENSEMBLE.")
+        elif "ENSEMBLE" in policy.get("candidates", {}):
+            errors.append("Phase 13 has an ensemble threshold without a frozen TRUE_BLEND.")
+
+        threshold_policy = policy
+        ensemble_selection = _read_json(directory / "ensemble_selection.json")
+        expected_outer = _reconstruct_outer_validation(
+            directory,
+            lock,
+            settings,
+            final_payloads,
+            threshold_policy,
+            ensemble_selection,
+            root,
+        )
+        persisted_validation = pd.read_parquet(directory / "validation_predictions.parquet")
+        validation_columns = [
+            KEY,
+            "track",
+            "candidate_id",
+            "raw_probability",
+            "calibrated_probability",
+            "effective_probability",
+        ]
+        expected_validation = (
+            expected_outer["predictions"]
+            .loc[:, validation_columns]
+            .sort_values(["track", KEY], kind="mergesort")
+            .reset_index(drop=True)
+        )
+        actual_validation = (
+            persisted_validation.loc[:, validation_columns]
+            .sort_values(["track", KEY], kind="mergesort")
+            .reset_index(drop=True)
+            if list(persisted_validation.columns) == validation_columns
+            else persisted_validation
+        )
+        errors.extend(
+            _compare_frame(
+                expected_validation,
+                actual_validation,
+                validation_columns,
+                tolerance=1.0e-10,
+                label="outer validation predictions",
+            )
+        )
+        persisted_metrics = _read_json(directory / "validation_metrics.json")
+        errors.extend(
+            _compare_payload(
+                expected_outer["metrics"],
+                persisted_metrics,
+                label="validation_metrics",
+            )
+        )
+        persisted_effective_manifest = _read_json(directory / "effective_model_manifest.json")
+        errors.extend(
+            _compare_payload(
+                expected_outer["effective_manifest"],
+                persisted_effective_manifest,
+                label="effective_model_manifest",
+            )
+        )
+        if len(expected_outer["validation_targets"]) != int(
             audit.get("validation_target_rows_loaded_after_phase13_freeze", -1)
         ):
             errors.append("Phase 13 validation target access audit count differs.")
+
+        expected_selection_payload = _read_json(directory / "calibration_selection.json")
+        expected_selected_calibration = {
+            track: {
+                "method": expected_selection_payload["tracks"][track][
+                    "selected_calibration_method"
+                ],
+                "calibrator_sha": final_payloads[track]["calibrator_sha"],
+            }
+            for track in TRACKS
+        }
+        if freeze.get("selected_calibration") != expected_selected_calibration:
+            errors.append("Phase 13 freeze selected calibration evidence differs.")
+        if freeze.get("frozen_ensemble_components") != {
+            track: {
+                "method": final_payloads[track].get("method"),
+                "calibrator_sha": final_payloads[track].get("calibrator_sha"),
+            }
+            for track in TRACKS
+        }:
+            errors.append("Phase 13 freeze ensemble component evidence differs.")
+        if freeze.get("calibration_selection_evidence_sha256") != canonical_json_sha256(
+            expected_selection_payload["tracks"]
+        ):
+            errors.append("Phase 13 calibration selection evidence hash differs.")
+        expected_ensemble_evidence = canonical_json_sha256(
+            {
+                "summary": expected_summary.to_dict("records"),
+                "selection": expected_selection,
+            }
+        )
+        if freeze.get("ensemble_evidence_sha256") != expected_ensemble_evidence:
+            errors.append("Phase 13 ensemble evidence hash differs.")
+        if freeze.get("threshold_evidence_sha256") != policy.get("threshold_curve_sha256"):
+            errors.append("Phase 13 threshold evidence hash differs.")
+        if freeze.get("calibrated_thresholds") != policy.get("candidates"):
+            errors.append("Phase 13 frozen threshold policy differs.")
+        if freeze.get("selected_ensemble_policy") != ensemble_selection.get("selected_policy"):
+            errors.append("Phase 13 frozen ensemble policy differs.")
+        if not _close(freeze.get("ensemble_t1_weight"), ensemble_selection.get("selected_weight")):
+            errors.append("Phase 13 frozen ensemble weight differs.")
+        if manifest.get("phase13_development_champion") != expected_outer["champion"]:
+            errors.append("Phase 13 development champion differs.")
     except Exception as exc:
         errors.append(str(exc))
     return {

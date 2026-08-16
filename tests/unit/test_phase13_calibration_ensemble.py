@@ -11,6 +11,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import warranty_analytics_model.calibration_ensemble.checkpoint as phase13_checkpoint
+import warranty_analytics_model.calibration_ensemble.config as phase13_config
 import warranty_analytics_model.calibration_ensemble.input as phase13_input
 import warranty_analytics_model.calibration_ensemble.runner as phase13_runner
 import warranty_analytics_model.calibration_ensemble.validation as phase13_validation
@@ -35,6 +37,8 @@ from warranty_analytics_model.calibration_ensemble.config import (
     ENSEMBLE_WEIGHTS,
     CalibrationEnsembleError,
     load_calibration_ensemble_settings,
+    locked_configuration_sha256,
+    settings_payload,
 )
 from warranty_analytics_model.calibration_ensemble.contract import (
     validate_calibration_ensemble_contract,
@@ -136,6 +140,21 @@ def test_phase13_contract_configuration_and_cli_are_locked() -> None:
     assert parsed.phase12_dir == Path("phase12")
     assert parsed.max_workers == 4
     assert parsed.catboost_replay_threads == 8
+
+
+def test_phase13_configuration_rejects_any_experimental_drift(monkeypatch) -> None:
+    original_loader = phase13_config.yaml.safe_load
+
+    def drifted_loader(stream):
+        payload = original_loader(stream)
+        payload["phase13_calibration_ensemble"]["validation"][
+            "ensemble_max_log_loss_regression"
+        ] = 0.004
+        return payload
+
+    monkeypatch.setattr(phase13_config.yaml, "safe_load", drifted_loader)
+    with pytest.raises(CalibrationEnsembleError, match="experimental payload"):
+        phase13_config.load_calibration_ensemble_settings()
 
 
 def test_calibrators_are_transparent_and_guarded() -> None:
@@ -372,8 +391,6 @@ def test_stage_a_calibration_ensemble_and_threshold_artifacts(monkeypatch, tmp_p
         work_dir / "validation_predictions.parquet", index=False
     )
     (work_dir / "phase12_parent_resolution.json").write_text("{}", encoding="utf-8")
-    (work_dir / "validation_metrics.json").write_text("{}", encoding="utf-8")
-    (work_dir / "effective_model_manifest.json").write_text("{}", encoding="utf-8")
     (work_dir / "compute_manifest.json").write_text("{}", encoding="utf-8")
     audit = {
         "validation_target_rows_loaded_before_phase13_freeze": 0,
@@ -385,7 +402,60 @@ def test_stage_a_calibration_ensemble_and_threshold_artifacts(monkeypatch, tmp_p
         "first_allowed_test_target_phase": 15,
     }
     (work_dir / "target_access_audit.json").write_text(json.dumps(audit), encoding="utf-8")
+    lock.run_id = "P12"
+    expected_outer = phase13_validation._reconstruct_outer_validation(
+        work_dir,
+        lock,
+        load_calibration_ensemble_settings(),
+        final_calibrators,
+        _read_json(work_dir / "threshold_policy.json"),
+        _read_json(work_dir / "ensemble_selection.json"),
+        Path.cwd(),
+    )
+    (work_dir / "validation_metrics.json").write_text(
+        json.dumps(expected_outer["metrics"]), encoding="utf-8"
+    )
+    (work_dir / "effective_model_manifest.json").write_text(
+        json.dumps(expected_outer["effective_manifest"]), encoding="utf-8"
+    )
     freeze_without_hash = {
+        "phase": 13,
+        "phase13_run_id": "P13_TEST",
+        "phase12_run_id": "P12",
+        "selected_calibration": {
+            track: {
+                "method": _read_json(work_dir / "calibration_selection.json")["tracks"][track][
+                    "selected_calibration_method"
+                ],
+                "calibrator_sha": final_calibrators[track]["calibrator_sha"],
+            }
+            for track in ("T1", "T3")
+        },
+        "calibration_fold_sha256": calibration["fold_sha"],
+        "calibration_selection_evidence_sha256": phase13_runner._canonical_sha(
+            _read_json(work_dir / "calibration_selection.json")["tracks"]
+        ),
+        "selected_ensemble_policy": _read_json(work_dir / "ensemble_selection.json")[
+            "selected_policy"
+        ],
+        "ensemble_t1_weight": _read_json(work_dir / "ensemble_selection.json")["selected_weight"],
+        "frozen_ensemble_components": {
+            track: {
+                "method": final_calibrators[track].get("method"),
+                "calibrator_sha": final_calibrators[track].get("calibrator_sha"),
+            }
+            for track in ("T1", "T3")
+        },
+        "ensemble_evidence_sha256": phase13_runner._canonical_sha(
+            {
+                "summary": ensemble["summary"].to_dict("records"),
+                "selection": _read_json(work_dir / "ensemble_selection.json"),
+            }
+        ),
+        "calibrated_thresholds": _read_json(work_dir / "threshold_policy.json")["candidates"],
+        "threshold_evidence_sha256": _read_json(work_dir / "threshold_policy.json")[
+            "threshold_curve_sha256"
+        ],
         "outer_validation_accessed": False,
         "test_target_rows_loaded": 0,
         "test_predictions_created": 0,
@@ -395,7 +465,7 @@ def test_stage_a_calibration_ensemble_and_threshold_artifacts(monkeypatch, tmp_p
     }
     freeze = {
         **freeze_without_hash,
-        "phase13_freeze_sha256": phase13_runner._canonical_sha(freeze_without_hash),
+        "phase13_freeze_content_sha256": phase13_runner._canonical_sha(freeze_without_hash),
     }
     (work_dir / "phase13_freeze.json").write_text(json.dumps(freeze), encoding="utf-8")
     (work_dir / "phase13_manifest.json").write_text(
@@ -405,6 +475,12 @@ def test_stage_a_calibration_ensemble_and_threshold_artifacts(monkeypatch, tmp_p
                 "run_id": "P13_TEST",
                 "phase12_dir": str(work_dir),
                 "phase12_run_id": "P12",
+                "configuration_sha256": locked_configuration_sha256(),
+                "phase13_freeze_content_sha256": freeze["phase13_freeze_content_sha256"],
+                "phase13_freeze_file_sha256": sha256(
+                    (work_dir / "phase13_freeze.json").read_bytes()
+                ).hexdigest(),
+                "phase13_development_champion": expected_outer["champion"],
                 "artifact_file_sha256": {},
                 "test_target_rows_loaded": 0,
                 "test_predictions_created": 0,
@@ -418,6 +494,45 @@ def test_stage_a_calibration_ensemble_and_threshold_artifacts(monkeypatch, tmp_p
     validation_result = validate_existing_phase13(work_dir, project_root=Path.cwd())
     assert validation_result["valid"] is True
     assert validation_result["hardening_status"] == "HARDENED_PASS"
+    tampered = pd.read_parquet(work_dir / "validation_predictions.parquet")
+    tampered.loc[0, "effective_probability"] = float(tampered.loc[0, "calibrated_probability"])
+    tampered.to_parquet(work_dir / "validation_predictions.parquet", index=False)
+    tampered_result = validate_existing_phase13(work_dir, project_root=Path.cwd())
+    assert tampered_result["valid"] is False
+    assert any("outer validation predictions" in error for error in tampered_result["errors"])
+
+
+def test_calibration_stage_reuses_valid_checkpoints_and_refits_corruption(
+    monkeypatch, tmp_path: Path
+) -> None:
+    source = _large_source_oof()
+    settings = load_calibration_ensemble_settings()
+    lock = SimpleNamespace(
+        source_oof=source, train_targets=source.drop_duplicates("warranty_claim_key")
+    )
+    work_dir = tmp_path / "phase13-resume"
+    work_dir.mkdir()
+    first = _calibration_stage(lock, settings, work_dir, resume=False)
+    assert first["execution"]["jobs_refit"] == 12
+    calls: list[str] = []
+    original = phase13_runner.fit_calibrator
+
+    def counted_fit(*args, **kwargs):
+        calls.append(str(args[0]))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(phase13_runner, "fit_calibrator", counted_fit)
+    resumed = _calibration_stage(lock, settings, work_dir, resume=True)
+    assert calls == []
+    assert resumed["execution"]["jobs_reused_from_checkpoint"] == 12
+    assert resumed["execution"]["jobs_refit"] == 0
+
+    corrupt = work_dir / "checkpoints" / "T1_C1_SIGMOID_C1.json"
+    corrupt.write_text("{", encoding="utf-8")
+    repaired = _calibration_stage(lock, settings, work_dir, resume=True)
+    assert len(calls) == 1
+    assert repaired["execution"]["jobs_reused_from_checkpoint"] == 11
+    assert repaired["execution"]["jobs_refit"] == 1
 
 
 def test_validation_stage_replays_frozen_models_and_fails_closed(
@@ -470,6 +585,20 @@ def test_validation_stage_replays_frozen_models_and_fails_closed(
             matrix["warranty_claim_key"].to_numpy() / 35.0, 0.01, 0.99
         ),
     )
+    rejected_calibrator = fit_calibrator(
+        "C1_SIGMOID",
+        np.linspace(0.01, 0.99, len(keys)),
+        (keys % 5 == 0).astype("int8"),
+    )
+    monkeypatch.setattr(
+        phase13_runner,
+        "accept_track_calibration",
+        lambda _raw, _calibrated, _settings: {
+            "accepted": False,
+            "reason": "CALIBRATION_REJECTED_ON_VALIDATION",
+            "effective": "RAW_PHASE12",
+        },
+    )
     ensemble = {"selection": {"selected_policy": "TRUE_BLEND", "selected_weight": 0.5}}
     thresholds = {
         "policy": {
@@ -484,7 +613,7 @@ def test_validation_stage_replays_frozen_models_and_fails_closed(
         lock,
         settings,
         selected={},
-        final_calibrators={"T1": {"method": "NONE"}, "T3": {"method": "NONE"}},
+        final_calibrators={"T1": rejected_calibrator, "T3": rejected_calibrator},
         calibration={},
         ensemble=ensemble,
         thresholds=thresholds,
@@ -495,6 +624,8 @@ def test_validation_stage_replays_frozen_models_and_fails_closed(
         "CALIBRATION_REJECTED_ON_VALIDATION",
         "ENSEMBLE_REJECTED_ON_VALIDATION",
     ]
+    assert result["ensemble_candidate"] is None
+    assert result["ensemble_acceptance"]["reason"] == "COMPONENT_CALIBRATION_REJECTED"
     assert len(result["predictions"]) == 60
     assert (tmp_path / "validation_metrics.json").is_file()
 
@@ -749,6 +880,12 @@ def test_runner_provenance_helpers_and_fail_closed_start(tmp_path: Path) -> None
     assert phase13_validation._close("not-a-number", "not-a-number") is True
     assert phase13_validation._compare_frame(frame, frame.iloc[:1], ["key", "score"], label="frame")
     assert phase13_validation._compare_frame(frame, frame, ["wrong"], label="frame")
+    settings = load_calibration_ensemble_settings()
+    assert settings_payload(settings)["configuration_sha256"] == locked_configuration_sha256()
+    assert phase13_validation._compare_payload({"a": [1]}, {"a": [2]}, label="payload")
+    assert phase13_validation._compare_payload({"a": 1}, {"b": 1}, label="payload")
+    assert phase13_validation._compare_payload([1], [1, 2], label="payload")
+    assert phase13_validation._compare_payload(True, 1, label="payload")
 
 
 def test_checkpoint_planner_and_validator_fail_closed(tmp_path: Path) -> None:
@@ -781,7 +918,76 @@ def test_checkpoint_planner_and_validator_fail_closed(tmp_path: Path) -> None:
         )
         is not None
     )
+    checkpoint.write_text("{", encoding="utf-8")
+    assert (
+        load_valid_calibration_checkpoint(
+            tmp_path,
+            track="T1",
+            calibration_method="C0_NONE",
+            calibration_fold="C1",
+            training_input_sha="train",
+            validation_input_sha="validation",
+        )
+        is None
+    )
     assert phase13_plan_check(tmp_path / "missing-phase12")["valid"] is False
     result = validate_existing_phase13(tmp_path / "missing-phase13")
     assert result["valid"] is False
     assert result["hardening_status"] == "BLOCKED"
+
+
+def test_checkpoint_loader_rejects_each_stale_or_malformed_payload(tmp_path: Path) -> None:
+    checkpoint_dir = tmp_path / "checkpoints"
+    checkpoint_dir.mkdir()
+    path = checkpoint_dir / "T1_C0_NONE_C1.json"
+    base = {
+        "track": "T1",
+        "calibration_method": "C0_NONE",
+        "calibration_fold": "C1",
+        "training_input_sha": "train",
+        "validation_input_sha": "validation",
+        "calibrator_sha": "cal",
+        "metrics": {"average_precision": 0.1},
+        "prediction_sha": "pred",
+    }
+
+    def write_payload(payload: dict[str, object], declared: str | None = None) -> None:
+        checkpoint = dict(payload)
+        checkpoint["checkpoint_sha"] = declared or phase13_checkpoint._sha(payload)
+        path.write_text(json.dumps(checkpoint), encoding="utf-8")
+
+    kwargs = {
+        "work_dir": tmp_path,
+        "track": "T1",
+        "calibration_method": "C0_NONE",
+        "calibration_fold": "C1",
+        "training_input_sha": "train",
+        "validation_input_sha": "validation",
+    }
+    assert load_valid_calibration_checkpoint(**kwargs | {"work_dir": tmp_path / "missing"}) is None
+    invalid_declared = dict(base)
+    invalid_declared["checkpoint_sha"] = 1
+    path.write_text(json.dumps(invalid_declared), encoding="utf-8")
+    assert load_valid_calibration_checkpoint(**kwargs) is None
+
+    for field, value in (
+        ("track", "T3"),
+        ("calibration_fold", "C2"),
+        ("training_input_sha", "stale-train"),
+        ("validation_input_sha", "stale-validation"),
+    ):
+        stale = dict(base)
+        stale[field] = value
+        write_payload(stale)
+        assert load_valid_calibration_checkpoint(**kwargs) is None
+
+    write_payload(base, declared="wrong")
+    assert load_valid_calibration_checkpoint(**kwargs) is None
+    malformed_calibrator = dict(base)
+    malformed_calibrator["calibrator"] = []
+    write_payload(malformed_calibrator)
+    assert load_valid_calibration_checkpoint(**kwargs) is None
+    mismatched_calibrator = dict(base)
+    mismatched_calibrator["calibrator"] = {"calibrator_sha": "different"}
+    write_payload(mismatched_calibrator)
+    assert load_valid_calibration_checkpoint(**kwargs) is None

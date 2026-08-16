@@ -21,6 +21,7 @@ phase13_calibration_ensemble:
       max_roc_auc_drop: 0.005
       none_log_loss_tolerance: 0.0005
       none_brier_tolerance: 0.0002
+      selection_tie_tolerance: 0.000001
   reliability:
     bins: 10
     method: deterministic_equal_frequency
@@ -61,3 +62,5 @@ phase13_calibration_ensemble:
     preferred_catboost_replay_threads: 16
   checkpoint_each_calibration_fold: true
   resume_supported: true
+  output_directory: artifacts/calibration_ensemble
+  report_directory: reports/phase13_calibration_ensemble

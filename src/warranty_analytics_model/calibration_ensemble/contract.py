@@ -16,6 +16,7 @@ from .config import (
     ENSEMBLE_WEIGHTS,
     TRACKS,
     load_calibration_ensemble_settings,
+    locked_configuration_sha256,
 )
 
 
@@ -74,6 +75,8 @@ def validate_calibration_ensemble_contract(
             errors.append("Phase 13 outer-validation policy differs.")
         if policy.get("test") != {"forbidden_until_phase": 15}:
             errors.append("Phase 13 TEST policy differs.")
+        if policy.get("experimental_configuration_sha256") != locked_configuration_sha256():
+            errors.append("Phase 13 experimental configuration checksum differs.")
         if settings.tracks != TRACKS or settings.calibration_methods != CALIBRATION_METHODS:
             errors.append("Phase 13 configuration inventory drifted.")
         if settings.ensemble_weights != ENSEMBLE_WEIGHTS:

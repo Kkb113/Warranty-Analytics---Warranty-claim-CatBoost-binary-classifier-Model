@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import json
 import os
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
+from threadpoolctl import threadpool_limits  # type: ignore[import-untyped]
 
 from ..baseline_model.adapters import adapt_matrix
 from ..baseline_model.catboost_baseline import load_model, predict_probabilities
@@ -21,7 +23,7 @@ from ..feature_mart.manifest import git_commit_sha, write_json
 from .calibration_folds import calibration_fold_assignments, calibration_fold_manifest
 from .calibration_metrics import probability_metrics
 from .calibrators import apply_calibrator, fit_calibrator
-from .checkpoint import write_calibration_checkpoint
+from .checkpoint import load_valid_calibration_checkpoint, write_calibration_checkpoint
 from .config import (
     CALIBRATION_METHODS,
     TRACKS,
@@ -39,7 +41,7 @@ from .input import (
     load_phase12_lock,
     write_phase12_parent_resolution,
 )
-from .planner import build_compute_plan
+from .planner import ComputePlan, build_compute_plan
 from .reporting import write_phase13_reports
 from .selection import (
     accept_ensemble,
@@ -169,12 +171,151 @@ def _metric_row(
     }
 
 
+def _fit_phase13_calibrator(
+    method: str,
+    train: pd.DataFrame,
+    settings: CalibrationEnsembleSettings,
+    train_sha: str,
+) -> dict[str, Any]:
+    return fit_calibrator(
+        method,
+        train["high_cost_probability"],
+        train["target"],
+        epsilon=settings.sigmoid_epsilon,
+        sigmoid_solver=settings.sigmoid_solver,
+        sigmoid_max_iter=settings.sigmoid_max_iter,
+        isotonic_y_min=settings.isotonic_y_min,
+        isotonic_y_max=settings.isotonic_y_max,
+        isotonic_out_of_bounds=settings.isotonic_out_of_bounds,
+        isotonic_minimum_positive=settings.isotonic_minimum_training_positives,
+        isotonic_minimum_negative=settings.isotonic_minimum_training_negatives,
+        isotonic_minimum_unique=settings.isotonic_minimum_unique_probabilities,
+        input_sha=train_sha,
+    )
+
+
+def _calibration_job(job: dict[str, Any]) -> dict[str, Any]:
+    track = str(job["track"])
+    method = str(job["method"])
+    calibration_fold = str(job["calibration_fold"])
+    train = job["train"]
+    validation = job["validation"]
+    settings: CalibrationEnsembleSettings = job["settings"]
+    work_dir: Path = job["work_dir"]
+    train_sha = str(job["training_input_sha"])
+    validation_sha = str(job["validation_input_sha"])
+    checkpoint = (
+        load_valid_calibration_checkpoint(
+            work_dir,
+            track=track,
+            calibration_method=method,
+            calibration_fold=calibration_fold,
+            training_input_sha=train_sha,
+            validation_input_sha=validation_sha,
+        )
+        if bool(job["resume"] and settings.resume_supported)
+        else None
+    )
+    payload: dict[str, Any] | None = checkpoint.get("calibrator") if checkpoint else None
+    reused = isinstance(payload, dict) and payload.get("input_sha") == train_sha
+
+    def materialize(current: dict[str, Any]) -> dict[str, Any]:
+        eligible = bool(current.get("eligible", True))
+        reason = str(current.get("eligibility_reason", "ELIGIBLE"))
+        if not eligible:
+            return {
+                "payload": current,
+                "eligible": False,
+                "reason": reason,
+                "internal": pd.DataFrame(),
+                "metrics": {"eligible": False, "eligibility_reason": reason},
+                "prediction_sha": "",
+            }
+        calibrated = apply_calibrator(current, validation["high_cost_probability"])
+        internal = (
+            pd.DataFrame(
+                {
+                    KEY: validation[KEY].astype(int).to_numpy(),
+                    "source_fold_id": validation["fold_id"].astype(int).to_numpy(),
+                    "calibration_fold_id": calibration_fold,
+                    "track": track,
+                    "calibration_method": method,
+                    "raw_probability": validation["high_cost_probability"].astype(float).to_numpy(),
+                    "calibrated_probability": calibrated,
+                    "target": validation["target"].astype(int).to_numpy(),
+                }
+            )
+            .sort_values(["calibration_fold_id", KEY], kind="mergesort")
+            .reset_index(drop=True)
+        )
+        metrics = probability_metrics(
+            internal["target"],
+            internal["calibrated_probability"],
+            bins=settings.reliability_bins,
+            keys=internal[KEY],
+        )
+        return {
+            "payload": current,
+            "eligible": True,
+            "reason": reason,
+            "internal": internal,
+            "metrics": metrics,
+            "prediction_sha": _frame_sha(internal),
+        }
+
+    if not reused:
+        with threadpool_limits(limits=1):
+            payload = _fit_phase13_calibrator(method, train, settings, train_sha)
+        assert isinstance(payload, dict)
+        materialized = materialize(payload)
+    else:
+        assert isinstance(payload, dict)
+        materialized = materialize(payload)
+        if checkpoint is not None and (
+            checkpoint.get("prediction_sha") != materialized["prediction_sha"]
+            or checkpoint.get("metrics") != materialized["metrics"]
+        ):
+            reused = False
+            with threadpool_limits(limits=1):
+                payload = _fit_phase13_calibrator(method, train, settings, train_sha)
+            assert isinstance(payload, dict)
+            materialized = materialize(payload)
+    assert isinstance(payload, dict)
+    if settings.checkpoint_each_calibration_fold:
+        write_calibration_checkpoint(
+            work_dir,
+            track=track,
+            calibration_method=method,
+            calibration_fold=calibration_fold,
+            training_input_sha=train_sha,
+            validation_input_sha=validation_sha,
+            calibrator_sha=str(payload["calibrator_sha"]),
+            metrics=materialized["metrics"],
+            prediction_sha=str(materialized["prediction_sha"]),
+            calibrator=payload,
+        )
+    return {
+        "track": track,
+        "method": method,
+        "calibration_fold": calibration_fold,
+        "training_input_sha": train_sha,
+        "validation_input_sha": validation_sha,
+        "calibrator": payload,
+        "eligible": bool(materialized["eligible"]),
+        "eligibility_reason": str(materialized["reason"]),
+        "internal": materialized["internal"],
+        "metrics": materialized["metrics"],
+        "reused": reused,
+    }
+
+
 def _calibration_stage(
     lock: Phase12Lock,
     settings: CalibrationEnsembleSettings,
     work_dir: Path,
     *,
     resume: bool,
+    compute_plan: ComputePlan | None = None,
 ) -> dict[str, Any]:
     source = lock.source_oof.copy()
     source_for_assignments = source.loc[
@@ -184,6 +325,36 @@ def _calibration_stage(
     fold_manifest, fold_sha = calibration_fold_manifest(assignments)
     assignments.to_parquet(work_dir / "calibration_fold_assignments.parquet", index=False)
     _write_json(work_dir / "calibration_fold_manifest.json", fold_manifest)
+    plan = compute_plan or build_compute_plan(settings)
+    definitions: tuple[dict[str, Any], ...] = (
+        {"id": "C1", "train": (1,), "validation": 2},
+        {"id": "C2", "train": (1, 2), "validation": 3},
+    )
+    jobs: list[dict[str, Any]] = []
+    for track in TRACKS:
+        track_source = source.loc[source["track"] == track].copy()
+        for method in CALIBRATION_METHODS:
+            for definition in definitions:
+                train = track_source.loc[track_source["fold_id"].isin(definition["train"])].copy()
+                validation = track_source.loc[
+                    track_source["fold_id"] == int(definition["validation"])
+                ].copy()
+                jobs.append(
+                    {
+                        "track": track,
+                        "method": method,
+                        "calibration_fold": str(definition["id"]),
+                        "train": train,
+                        "validation": validation,
+                        "settings": settings,
+                        "work_dir": work_dir,
+                        "resume": resume,
+                        "training_input_sha": _calibration_input_sha(train),
+                        "validation_input_sha": _calibration_input_sha(validation),
+                    }
+                )
+    with ThreadPoolExecutor(max_workers=plan.calibration_worker_count) as executor:
+        results = list(executor.map(_calibration_job, jobs))
 
     all_crossfit: list[pd.DataFrame] = []
     fold_metric_rows: list[dict[str, Any]] = []
@@ -191,98 +362,51 @@ def _calibration_stage(
     candidate_payload: dict[str, Any] = {"phase": 13, "tracks": {}}
     summary_rows: list[dict[str, Any]] = []
     selections: dict[str, Any] = {}
+    from .reliability import reliability_bins
 
     for track in TRACKS:
-        track_source = source.loc[source["track"] == track].copy()
         candidate_payload["tracks"][track] = {}
         method_rows: list[dict[str, Any]] = []
         for method in CALIBRATION_METHODS:
             candidate_payload["tracks"][track][method] = {"folds": {}}
+            method_results = [
+                result
+                for result in results
+                if result["track"] == track and result["method"] == method
+            ]
             predictions: list[pd.DataFrame] = []
             method_fold_rows: list[dict[str, Any]] = []
             method_eligible = True
             method_reason = "ELIGIBLE"
-            definitions: tuple[dict[str, Any], ...] = (
-                {"id": "C1", "train": (1,), "validation": 2},
-                {"id": "C2", "train": (1, 2), "validation": 3},
-            )
-            for definition in definitions:
-                calibration_fold = str(definition["id"])
-                train = track_source.loc[track_source["fold_id"].isin(definition["train"])].copy()
-                validation = track_source.loc[
-                    track_source["fold_id"] == int(definition["validation"])
-                ].copy()
-                train_sha = _calibration_input_sha(train)
-                validation_sha = _calibration_input_sha(validation)
-                payload: dict[str, Any]
-                if method == "C0_NONE":
-                    payload = fit_calibrator(
-                        method,
-                        train["high_cost_probability"],
-                        train["target"],
-                        input_sha=train_sha,
-                    )
-                else:
-                    payload = fit_calibrator(
-                        method,
-                        train["high_cost_probability"],
-                        train["target"],
-                        epsilon=settings.sigmoid_epsilon,
-                        isotonic_y_min=settings.isotonic_y_min,
-                        isotonic_y_max=settings.isotonic_y_max,
-                        isotonic_out_of_bounds=settings.isotonic_out_of_bounds,
-                        isotonic_minimum_positive=settings.isotonic_minimum_training_positives,
-                        isotonic_minimum_negative=settings.isotonic_minimum_training_negatives,
-                        isotonic_minimum_unique=settings.isotonic_minimum_unique_probabilities,
-                        input_sha=train_sha,
-                    )
-                eligible = bool(payload.get("eligible", True))
-                reason = str(payload.get("eligibility_reason", "ELIGIBLE"))
+            for result in method_results:
+                calibration_fold = str(result["calibration_fold"])
+                payload = result["calibrator"]
+                eligible = bool(result["eligible"])
+                reason = str(result["eligibility_reason"])
                 method_eligible = method_eligible and eligible
                 if not eligible:
                     method_reason = reason
                 candidate_payload["tracks"][track][method]["folds"][calibration_fold] = {
                     "calibrator": payload,
-                    "training_input_sha": train_sha,
-                    "validation_input_sha": validation_sha,
+                    "training_input_sha": result["training_input_sha"],
+                    "validation_input_sha": result["validation_input_sha"],
+                    "reused_from_checkpoint": bool(result["reused"]),
                 }
-                if not eligible:
+                internal = result["internal"]
+                if not eligible or internal.empty:
                     continue
-                calibrated = apply_calibrator(payload, validation["high_cost_probability"])
-                internal = pd.DataFrame(
-                    {
-                        KEY: validation[KEY].astype(int).to_numpy(),
-                        "source_fold_id": validation["fold_id"].astype(int).to_numpy(),
-                        "calibration_fold_id": calibration_fold,
-                        "track": track,
-                        "calibration_method": method,
-                        "raw_probability": validation["high_cost_probability"]
-                        .astype(float)
-                        .to_numpy(),
-                        "calibrated_probability": calibrated,
-                        "target": validation["target"].astype(int).to_numpy(),
-                    }
-                )
                 predictions.append(internal)
-                metrics = probability_metrics(
-                    internal["target"],
-                    internal["calibrated_probability"],
-                    bins=settings.reliability_bins,
-                    keys=internal[KEY],
-                )
                 method_fold_rows.append(
                     _metric_row(
                         track=track,
                         method=method,
                         calibration_fold=calibration_fold,
                         role="CALIBRATION_VALIDATION",
-                        metrics=metrics,
+                        metrics=result["metrics"],
                         eligible=eligible,
                         eligibility_reason=reason,
                     )
                 )
-                from .reliability import reliability_bins
-
                 bins = reliability_bins(
                     internal["target"],
                     internal["calibrated_probability"],
@@ -294,18 +418,6 @@ def _calibration_stage(
                     bins.insert(1, "calibration_method", method)
                     bins.insert(2, "calibration_fold_id", calibration_fold)
                     reliability_rows.extend(bins.to_dict("records"))
-                if settings.checkpoint_each_calibration_fold:
-                    write_calibration_checkpoint(
-                        work_dir,
-                        track=track,
-                        calibration_method=method,
-                        calibration_fold=calibration_fold,
-                        training_input_sha=train_sha,
-                        validation_input_sha=validation_sha,
-                        calibrator_sha=str(payload["calibrator_sha"]),
-                        metrics=metrics,
-                        prediction_sha=_frame_sha(internal),
-                    )
             if predictions:
                 method_predictions = pd.concat(predictions, ignore_index=True).sort_values(
                     ["calibration_fold_id", KEY], kind="mergesort"
@@ -356,8 +468,7 @@ def _calibration_stage(
             method_rows.append(summary)
             fold_metric_rows.extend(method_fold_rows)
         method_summary = pd.DataFrame(method_rows)
-        selection = select_calibration_method(method_summary)
-        selections[track] = selection
+        selections[track] = select_calibration_method(method_summary, settings)
         summary_rows.extend(method_rows)
 
     crossfit = pd.concat(all_crossfit, ignore_index=True) if all_crossfit else pd.DataFrame()
@@ -383,6 +494,15 @@ def _calibration_stage(
         work_dir / "calibration_selection.json",
         {"phase": 13, "tracks": selections, "selection_sha256": _canonical_sha(selections)},
     )
+    execution = {
+        "mode": "BOUNDED_THREAD_POOL",
+        "calibration_worker_count": plan.calibration_worker_count,
+        "threads_per_calibration_worker": plan.threads_per_calibration_worker,
+        "native_threads_per_worker": 1,
+        "jobs_total": len(results),
+        "jobs_reused_from_checkpoint": sum(bool(result["reused"]) for result in results),
+        "jobs_refit": sum(not bool(result["reused"]) for result in results),
+    }
     return {
         "assignments": assignments,
         "fold_manifest": fold_manifest,
@@ -392,6 +512,7 @@ def _calibration_stage(
         "summary": pd.DataFrame(summary_rows),
         "selections": selections,
         "candidate_payload": candidate_payload,
+        "execution": execution,
     }
 
 
@@ -412,6 +533,8 @@ def _selected_oof(
             track_source["high_cost_probability"],
             track_source["target"],
             epsilon=settings.sigmoid_epsilon,
+            sigmoid_solver=settings.sigmoid_solver,
+            sigmoid_max_iter=settings.sigmoid_max_iter,
             isotonic_y_min=settings.isotonic_y_min,
             isotonic_y_max=settings.isotonic_y_max,
             isotonic_out_of_bounds=settings.isotonic_out_of_bounds,
@@ -530,7 +653,7 @@ def _ensemble_stage_with_source(
     )
     summary.to_parquet(work_dir / "ensemble_summary.parquet", index=False)
     pd.DataFrame(fold_metrics).to_parquet(work_dir / "ensemble_fold_metrics.parquet", index=False)
-    selection = select_ensemble(summary)
+    selection = select_ensemble(summary, settings)
     _write_json(work_dir / "ensemble_selection.json", selection)
     _write_json(
         work_dir / "ensemble_candidates.json",
@@ -618,6 +741,7 @@ def _validation_stage(
     prediction_rows: list[dict[str, Any]] = []
     metric_payload: dict[str, Any] = {"phase": 13, "tracks": {}, "ensemble": None}
     effective_track_probs: dict[str, np.ndarray] = {}
+    frozen_track_probs: dict[str, np.ndarray] = {}
     effective_track_meta: dict[str, dict[str, Any]] = {}
     warnings: list[str] = []
     for track in TRACKS:
@@ -641,13 +765,14 @@ def _validation_stage(
         calibrated_metrics.update(threshold_metrics(y, calibrated, selected_threshold))
         calibration_acceptance = accept_track_calibration(raw_metrics, calibrated_metrics, settings)
         accepted = bool(calibration_acceptance.get("accepted"))
-        if not accepted:
+        if not accepted and final_calibrators[track].get("method") != "NONE":
             warnings.append("CALIBRATION_REJECTED_ON_VALIDATION")
         effective = calibrated if accepted else raw
         effective_threshold = selected_threshold if accepted else raw_threshold
         effective_space = "CALIBRATED_PROBABILITY" if accepted else "RAW_UNCALIBRATED_PROBABILITY"
         effective_metrics = calibrated_metrics if accepted else raw_metrics
         effective_track_probs[track] = effective
+        frozen_track_probs[track] = calibrated
         effective_track_meta[track] = {
             "candidate_id": (
                 f"P13_{track}_CALIBRATED_{final_calibrators[track]['method']}"
@@ -692,8 +817,12 @@ def _validation_stage(
     ensemble_acceptance: dict[str, Any] | None = None
     if ensemble["selection"].get("selected_policy") == "TRUE_BLEND":
         weight = float(ensemble["selection"]["selected_weight"])
-        p1 = effective_track_probs["T1"]
-        p3 = effective_track_probs["T3"]
+        # The TRAIN-selected ensemble is frozen as a function of the selected
+        # component calibrators.  A rejected component invalidates the frozen
+        # blend; it must never be silently replaced with a RAW/CALIBRATED
+        # hybrid while retaining the TRAIN weight and threshold.
+        p1 = frozen_track_probs["T1"]
+        p3 = frozen_track_probs["T3"]
         p = weight * p1 + (1.0 - weight) * p3
         y = validation_frame[KEY].map(target_map).astype("int8").to_numpy()
         metrics = probability_metrics(
@@ -710,7 +839,20 @@ def _validation_stage(
                 str(item["candidate_id"]),
             ),
         )[0]
+        component_rejections = [
+            track
+            for track in TRACKS
+            if final_calibrators[track].get("method") != "NONE"
+            and not effective_track_meta[track]["accepted"]
+        ]
         ensemble_acceptance = accept_ensemble(metrics, best_single["validation_metrics"], settings)
+        if component_rejections:
+            ensemble_acceptance = {
+                **ensemble_acceptance,
+                "accepted": False,
+                "reason": "COMPONENT_CALIBRATION_REJECTED",
+                "component_rejections": component_rejections,
+            }
         if not ensemble_acceptance["accepted"]:
             warnings.append("ENSEMBLE_REJECTED_ON_VALIDATION")
         else:
@@ -730,12 +872,21 @@ def _validation_stage(
             "selected_weight": weight,
             "metrics": metrics,
             "acceptance": ensemble_acceptance,
+            "score_space": "CALIBRATED_ENSEMBLE_PROBABILITY",
+            "component_calibration": {
+                track: {
+                    "method": final_calibrators[track].get("method"),
+                    "calibrator_sha": final_calibrators[track].get("calibrator_sha"),
+                    "validation_accepted": bool(effective_track_meta[track]["accepted"]),
+                }
+                for track in TRACKS
+            },
         }
 
     validation_predictions = pd.DataFrame(prediction_rows)
     validation_predictions.to_parquet(work_dir / "validation_predictions.parquet", index=False)
     candidates = effective_single_rows + ([ensemble_candidate] if ensemble_candidate else [])
-    champion = select_phase13_champion(candidates)
+    champion = select_phase13_champion(candidates, settings)
     metric_payload["phase13_development_champion"] = champion
     metric_payload["warnings"] = sorted(set(warnings))
     _write_json(work_dir / "validation_metrics.json", metric_payload)
@@ -796,6 +947,13 @@ def _effective_manifest(
                 "source_model_sha256": {
                     track: lock.effective_models[track].get("model_sha256") for track in TRACKS
                 },
+                "component_calibration": {
+                    track: {
+                        "method": final_calibrators[track].get("method"),
+                        "calibrator_sha": final_calibrators[track].get("calibrator_sha"),
+                    }
+                    for track in TRACKS
+                },
                 "t1_weight": candidate["t1_weight"],
                 "t3_weight": candidate["t3_weight"],
                 "score_space": candidate["score_space"],
@@ -811,6 +969,9 @@ def _effective_manifest(
         "models": entries,
         "selected_ensemble_policy": ensemble["selection"].get("selected_policy"),
         "selected_ensemble_weight": ensemble["selection"].get("selected_weight"),
+        "effective_ensemble_policy": (
+            "TRUE_BLEND" if validation.get("ensemble_candidate") else "BEST_SINGLE"
+        ),
         "threshold_policy_sha256": _canonical_sha(thresholds["policy"]),
     }
 
@@ -855,7 +1016,7 @@ def build_phase13(
     work_dir.mkdir(parents=True, exist_ok=True)
 
     parent = write_phase12_parent_resolution(work_dir / "phase12_parent_resolution.json", lock)
-    calibration = _calibration_stage(lock, settings, work_dir, resume=resume)
+    calibration = _calibration_stage(lock, settings, work_dir, resume=resume, compute_plan=plan)
     selected, final_calibrators = _selected_oof(calibration, settings, lock, work_dir)
     ensemble = _ensemble_stage_with_source(selected, lock.source_oof, settings, work_dir)
     thresholds = _threshold_stage(selected, ensemble, lock.source_oof, settings, work_dir)
@@ -889,7 +1050,19 @@ def build_phase13(
         "calibration_selection_evidence_sha256": _canonical_sha(calibration["selections"]),
         "selected_ensemble_policy": ensemble["selection"].get("selected_policy"),
         "ensemble_t1_weight": ensemble["selection"].get("selected_weight"),
-        "ensemble_evidence_sha256": _canonical_sha(ensemble["summary"].to_dict("records")),
+        "frozen_ensemble_components": {
+            track: {
+                "method": final_calibrators[track].get("method"),
+                "calibrator_sha": final_calibrators[track].get("calibrator_sha"),
+            }
+            for track in TRACKS
+        },
+        "ensemble_evidence_sha256": _canonical_sha(
+            {
+                "summary": ensemble["summary"].to_dict("records"),
+                "selection": ensemble["selection"],
+            }
+        ),
         "calibrated_thresholds": thresholds["policy"]["candidates"],
         "threshold_evidence_sha256": thresholds["policy"]["threshold_curve_sha256"],
         "outer_validation_accessed": False,
@@ -900,7 +1073,10 @@ def build_phase13(
         "test_metrics_computed": False,
         "first_allowed_test_target_phase": 15,
     }
-    freeze = {**freeze_without_hash, "phase13_freeze_sha256": _canonical_sha(freeze_without_hash)}
+    freeze = {
+        **freeze_without_hash,
+        "phase13_freeze_content_sha256": _canonical_sha(freeze_without_hash),
+    }
     _write_json(work_dir / "phase13_freeze.json", freeze)
 
     validation = _validation_stage(
@@ -935,7 +1111,11 @@ def build_phase13(
         "first_allowed_test_target_phase": 15,
     }
     _write_json(work_dir / "target_access_audit.json", audit)
-    _write_json(work_dir / "compute_manifest.json", plan.as_dict())
+    compute_manifest = {
+        **plan.as_dict(),
+        "calibration_execution": calibration["execution"],
+    }
+    _write_json(work_dir / "compute_manifest.json", compute_manifest)
 
     manifest_without_hash: dict[str, Any] = {
         "phase": 13,
@@ -944,6 +1124,7 @@ def build_phase13(
         "git_commit_sha": git_commit_sha(root),
         "contract_version": contract["phase13"].get("version"),
         "contract_sha256": contract_sha,
+        "configuration_sha256": settings_payload(settings)["configuration_sha256"],
         "phase12_run_id": lock.run_id,
         "phase12_dir": str(lock.phase12_dir),
         "phase12_manifest_sha256": lock.phase12_manifest_sha256,
@@ -961,10 +1142,11 @@ def build_phase13(
         "selected_ensemble_policy": ensemble["selection"].get("selected_policy"),
         "ensemble_t1_weight": ensemble["selection"].get("selected_weight"),
         "phase13_technical_thresholds": thresholds["policy"]["candidates"],
-        "phase13_freeze_sha256": sha256_file(work_dir / "phase13_freeze.json"),
+        "phase13_freeze_content_sha256": freeze["phase13_freeze_content_sha256"],
+        "phase13_freeze_file_sha256": sha256_file(work_dir / "phase13_freeze.json"),
         "phase13_development_champion": validation["champion"],
         "effective_candidates": effective_manifest["models"],
-        "compute_plan": plan.as_dict(),
+        "compute_plan": compute_manifest,
         "target_access_audit": audit,
         "test_target_rows_loaded": 0,
         "test_predictions_created": 0,
