@@ -124,3 +124,8 @@ selection and ablation protocol. Use `warranty-model phase11-contract-check`
 before a run and `phase11-validate` after publication. Outer VALIDATION is
 opened only after `selection_freeze.json`; TEST is forbidden until Phase 15.
 
+Phase 12 adds `imbalance_threshold_v1.yaml` and
+`configs/imbalance_threshold.yaml`. It locks weighting-only strategies,
+TRAIN-derived threshold selection, outer-validation timing, and the TEST seal.
+Validate it with `warranty-model phase12-contract-check`.
+

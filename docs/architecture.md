@@ -164,6 +164,9 @@ settings.
   early stopping, calibration, threshold tuning, ensembling, and TEST access
   are prohibited. Every fold is checkpointed atomically and can be resumed
   only when its experiment, feature, and parameter hashes still match.
+- Phase 12: weighting-only imbalance experiments and TRAIN-derived raw-score
+  threshold policy on the accepted Phase 11 effective parents. Validation is
+  opened only after the Phase 12 freeze and TEST remains sealed.
 - Later phases: evaluation, calibration, inference, and monitoring.
 
 These boundaries preserve the Phase 0 contract and prevent infrastructure work

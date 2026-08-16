@@ -222,3 +222,10 @@ using the locked Phase 10 inner folds. See
 [`docs/phase_11_feature_selection_ablation.md`](docs/phase_11_feature_selection_ablation.md)
 for the contract, checkpoint/resume commands, and acceptance gates.
 
+## Phase 12 imbalance and threshold optimization
+
+Phase 12 tests only the locked weighting strategies and derives technical raw
+score thresholds from TRAIN-only out-of-fold predictions. See
+[`docs/phase_12_imbalance_threshold.md`](docs/phase_12_imbalance_threshold.md).
+Calibration and business threshold approval remain deferred to Phase 13.
+
