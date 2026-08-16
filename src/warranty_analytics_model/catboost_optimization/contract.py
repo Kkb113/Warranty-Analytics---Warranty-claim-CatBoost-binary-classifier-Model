@@ -203,4 +203,3 @@ __all__ = [
     "load_optimization_contract",
     "validate_optimization_contract",
 ]
-

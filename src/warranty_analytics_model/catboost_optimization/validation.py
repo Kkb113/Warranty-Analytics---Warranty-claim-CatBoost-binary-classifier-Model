@@ -546,7 +546,7 @@ def validate_optimization_directory(
             if not isinstance(entry, dict):
                 errors.append(f"Missing finalist model manifest entry: {candidate_id}")
                 continue
-            model_path = directory / str(entry.get("model_file", "")).replace("/", "\\")
+            model_path = directory / Path(str(entry.get("model_file", "")).replace("\\", "/"))
             if not model_path.is_file() or sha256_file(model_path) != entry.get("model_sha256"):
                 errors.append(f"Finalist model hash differs: {candidate_id}")
                 continue
@@ -679,4 +679,3 @@ def validate_optimization_directory(
         "trial_fold_evidence": fold_evidence,
         "winning_trial_reproduction": winning_trial_reproduction,
     }
-
