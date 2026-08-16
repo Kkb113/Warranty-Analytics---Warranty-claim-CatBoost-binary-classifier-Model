@@ -59,6 +59,7 @@ from .selection import (
     generate_candidates,
     replacement_decision,
     select_candidate,
+    select_phase11_champion,
     stable_importance_ranking,
     subset_feature_set,
 )
@@ -1091,19 +1092,14 @@ def build_phase11(
             "feature_count": selected[track]["feature_count"]
             if effective_candidates[track] == selected[track]["candidate_id"]
             else parents[track]["parent_feature_count"],
+            "parent_candidate_id": parents[track]["effective_parent_candidate_id"],
+            "is_parent_candidate": (
+                effective_candidates[track] == parents[track]["effective_parent_candidate_id"]
+            ),
         }
         for track in TRACKS
     ]
-    champion = sorted(
-        effective_outer,
-        key=lambda row: (
-            -float(row["metrics"]["average_precision"]),
-            -float(row["metrics"]["roc_auc"]),
-            float(row["metrics"]["log_loss"]),
-            int(row["feature_count"]),
-            str(row["candidate_id"]),
-        ),
-    )[0]["candidate_id"]
+    champion = select_phase11_champion(effective_outer)["candidate_id"]
     warnings = [
         "SYNTHETIC_POC",
         "BUSINESS_TARGET_UNCONFIRMED",

@@ -11,7 +11,7 @@ import pandas as pd
 from catboost import CatBoostClassifier
 
 from ..baseline_model.adapters import adapt_matrix
-from ..baseline_model.catboost_baseline import build_pool
+from ..baseline_model.catboost_baseline import build_pool, effective_parameters
 from ..baseline_model.config import load_baseline_settings
 from ..catboost_optimization.input import (
     load_locked_phase9_inputs,
@@ -38,6 +38,7 @@ from .selection import (
     feature_set_sha256,
     replacement_decision,
     select_candidate,
+    select_phase11_champion,
     subset_feature_set,
 )
 
@@ -64,6 +65,43 @@ REQUIRED_FILES = (
     "validation.json",
 )
 
+REQUIRED_VALIDATION_METRICS = (
+    "average_precision",
+    "roc_auc",
+    "log_loss",
+    "brier_score",
+    "threshold",
+)
+LOCKED_MODEL_PARAMETERS = (
+    "iterations",
+    "learning_rate",
+    "depth",
+    "l2_leaf_reg",
+    "random_strength",
+    "bagging_temperature",
+    "border_count",
+    "rsm",
+    "loss_function",
+    "bootstrap_type",
+    "random_seed",
+    "task_type",
+    "use_best_model",
+)
+FORBIDDEN_MODEL_PARAMETERS = {
+    "class_weights",
+    "auto_class_weights",
+    "scale_pos_weight",
+    "early_stopping_rounds",
+    "eval_set",
+    "od_type",
+    "od_wait",
+    "calibration",
+    "threshold",
+    "resampling",
+}
+DISABLED_MODEL_VALUES = (None, False, 0, 1, "", "none", "None", "false", "disabled")
+MODEL_PARAMETER_TOLERANCE = 1.0e-6
+
 
 def _error(errors: list[str], message: str) -> None:
     errors.append(message)
@@ -86,48 +124,147 @@ def _metric_values_match(
             _error(errors, f"{label}.{key} differs from recomputation.")
 
 
+def _require_metric_schema(
+    expected: Any, label: str, errors: list[str]
+) -> bool:  # pragma: no cover
+    """Require the complete persisted outer metric schema before comparison."""
+
+    if not isinstance(expected, dict):
+        _error(errors, f"{label} metric payload is missing or not an object.")
+        return False
+    missing = [key for key in REQUIRED_VALIDATION_METRICS if key not in expected]
+    if missing:
+        _error(errors, f"{label} metric payload is missing: {', '.join(missing)}.")
+        return False
+    return True
+
+
 def _artifact_path(directory: Path, value: Any) -> Path:  # pragma: no cover
     return directory / str(value).replace("\\", "/")
 
 
+def _parameter_matches(expected: Any, actual: Any) -> bool:  # pragma: no cover
+    if isinstance(expected, bool):
+        return actual is expected
+    if isinstance(expected, (int, float)) and not isinstance(expected, bool):
+        try:
+            return bool(
+                np.isclose(float(actual), float(expected), rtol=0.0, atol=MODEL_PARAMETER_TOLERANCE)
+            )
+        except (TypeError, ValueError):
+            return False
+    return bool(actual == expected)
+
+
+def _parameter_is_disabled(value: Any) -> bool:  # pragma: no cover
+    if value in DISABLED_MODEL_VALUES:
+        return True
+    if isinstance(value, (list, tuple)):
+        try:
+            return all(float(item) == 1.0 for item in value)
+        except (TypeError, ValueError):
+            return False
+    return False
+
+
 def _validate_frozen_parameters(
-    model_entry: dict[str, Any], parent_entry: dict[str, Any], label: str, errors: list[str]
+    model_entry: dict[str, Any],
+    parent_entry: dict[str, Any],
+    expected_parent: dict[str, Any],
+    label: str,
+    errors: list[str],
 ) -> None:  # pragma: no cover
-    forbidden = {
-        "class_weights",
-        "auto_class_weights",
-        "scale_pos_weight",
-        "early_stopping_rounds",
-        "eval_set",
-        "od_type",
-        "od_wait",
-        "calibration",
-        "threshold",
-        "resampling",
-    }
+    """Validate manifest parameters against source truth, not another manifest."""
+
     statistical = model_entry.get("statistical_parameters")
     parent_statistical = parent_entry.get("statistical_parameters")
     if not isinstance(statistical, dict) or not isinstance(parent_statistical, dict):
         _error(errors, f"{label} statistical parameter manifest is incomplete.")
         return
-    bad = sorted(str(key) for key in statistical if str(key).lower() in forbidden)
+    bad = sorted(str(key) for key in statistical if str(key).lower() in FORBIDDEN_MODEL_PARAMETERS)
     if bad:
         _error(errors, f"{label} contains forbidden statistical parameters: {', '.join(bad)}.")
     if "thread_count" in statistical:
         _error(errors, f"{label} thread_count leaked into statistical parameters.")
     if statistical != parent_statistical:
         _error(errors, f"{label} statistical CatBoost parameters drifted from its parent.")
-    expected = {
-        "loss_function": "Logloss",
-        "bootstrap_type": "Bayesian",
-        "random_seed": 20260810,
-        "task_type": "CPU",
-        "use_best_model": False,
-        "allow_writing_files": False,
-    }
-    for key, value in expected.items():
-        if statistical.get(key) != value:
-            _error(errors, f"{label} frozen parameter {key} drifted.")
+    for key, value in expected_parent.items():
+        if key in {"thread_count", "verbose"}:
+            continue
+        if key not in statistical or not _parameter_matches(value, statistical[key]):
+            _error(errors, f"{label} frozen parameter {key} drifted from source truth.")
+
+
+def _validate_actual_model_parameters(
+    actual: Any, expected_parent: dict[str, Any], label: str, errors: list[str]
+) -> None:  # pragma: no cover
+    """Validate the effective parameters embedded in a serialized CatBoost model."""
+
+    if not isinstance(actual, dict):
+        _error(errors, f"{label} effective CatBoost parameters are missing.")
+        return
+    for key in LOCKED_MODEL_PARAMETERS:
+        if key not in expected_parent:
+            _error(errors, f"{label} source truth is missing locked parameter {key}.")
+            continue
+        if key not in actual or not _parameter_matches(expected_parent[key], actual[key]):
+            _error(errors, f"{label} actual CatBoost parameter differs: {key}.")
+    for key in FORBIDDEN_MODEL_PARAMETERS:
+        if key in actual and not _parameter_is_disabled(actual[key]):
+            _error(errors, f"{label} actual model enables prohibited parameter: {key}.")
+
+
+def _resolve_parent_source(
+    track: str,
+    parent_id: str,
+    upstream: dict[str, Any],
+    phase10_model_manifest: dict[str, Any],
+    root: Path,
+) -> tuple[Path, dict[str, Any], dict[str, Any], str]:  # pragma: no cover
+    """Resolve the permitted parent and reconstruct its parameters from source truth."""
+
+    experiment = TRACK_TO_EXPERIMENT[track]
+    if parent_id == f"P10_{track}_{experiment}_OPTIMIZED":
+        source_dir = upstream["phase10_dir"]
+        source_entry = phase10_model_manifest.get("models", {}).get(parent_id, {})
+        if not isinstance(source_entry, dict) or not source_entry:
+            raise FeatureSelectionError(f"{track} locked Phase 10 parent model is missing.")
+        best_payload = _read_json(source_dir / "best_params.json").get(track, {})
+        fixed = (
+            _read_json(source_dir / "optimization_manifest.json")
+            .get("settings", {})
+            .get("fixed_parameters", {})
+        )
+        best = best_payload.get("best_params")
+        parameter_hash = best_payload.get("best_param_sha256")
+        if not isinstance(fixed, dict) or not isinstance(best, dict) or not parameter_hash:
+            raise FeatureSelectionError(f"{track} Phase 10 frozen parameter source is incomplete.")
+        expected = {str(key): value for key, value in {**fixed, **best}.items()}
+        if source_entry.get("parameter_sha256") != parameter_hash:
+            raise FeatureSelectionError(
+                f"{track} Phase 10 parameter hash differs from source truth."
+            )
+        return source_dir, source_entry, expected, str(parameter_hash)
+    if parent_id == f"P9_{experiment}_BASELINE":
+        source_dir = upstream["phase9_dir"]
+        source_manifest = _read_json(source_dir / "model_manifest.json")
+        # Phase 9 manifests are keyed by E1/E3, not by Phase 11 candidate IDs.
+        source_entry = source_manifest.get("models", {}).get(experiment, {})
+        if not isinstance(source_entry, dict) or not source_entry:
+            raise FeatureSelectionError(f"{track} locked Phase 9 parent model is missing.")
+        baseline = load_baseline_settings(root)
+        expected = {str(key): value for key, value in baseline.catboost_parameters.items()}
+        # These are CatBoost CPU defaults when they are intentionally absent from
+        # the Phase 9 baseline configuration, but they are present in get_all_params().
+        expected.setdefault("border_count", 254)
+        expected.setdefault("rsm", 1.0)
+        return (
+            source_dir,
+            source_entry,
+            expected,
+            canonical_json_sha256(baseline.catboost_parameters),
+        )
+    raise FeatureSelectionError(f"{track} effective parent is not permitted: {parent_id}.")
 
 
 def _load_validation_model_metrics(
@@ -512,7 +649,17 @@ def validate_selection_directory(  # pragma: no cover
             selected_entry = model_manifest.get("models", {}).get(track, {})
             if not parent_entry or not selected_entry:
                 raise FeatureSelectionError(f"{track} model manifest entry is missing.")
-            _validate_frozen_parameters(selected_entry, parent_entry, track, errors)
+            parent_id = str(parent_entry.get("effective_parent_candidate_id"))
+            source_dir, source_entry, expected_parent, expected_parameter_hash = (
+                _resolve_parent_source(track, parent_id, upstream, phase10_model_manifest, root)
+            )
+            if parent_entry.get("parent_parameter_sha256") != expected_parameter_hash:
+                raise FeatureSelectionError(
+                    f"{track} parent parameter hash drifted from source truth."
+                )
+            _validate_frozen_parameters(
+                selected_entry, parent_entry, expected_parent, track, errors
+            )
             selected_model_file = _artifact_path(directory, selected_entry.get("model_file"))
             if not selected_model_file.is_file() or sha256_file(
                 selected_model_file
@@ -532,23 +679,28 @@ def validate_selection_directory(  # pragma: no cover
             if selected_entry.get("feature_count") != candidate["feature_count"]:
                 raise FeatureSelectionError(f"{track} model feature count differs from freeze.")
 
-            parent_id = str(parent_entry.get("effective_parent_candidate_id"))
-            if parent_id.startswith("P10_"):
-                source_dir = upstream["phase10_dir"]
-                source_manifest = phase10_model_manifest
-            else:
-                source_dir = upstream["phase9_dir"]
-                source_manifest = _read_json(source_dir / "model_manifest.json")
-            source_entry = source_manifest.get("models", {}).get(parent_id, {})
-            if not source_entry:
-                raise FeatureSelectionError(f"{track} locked parent model is missing.")
-            if parent_entry.get("parent_parameter_sha256") != source_entry.get("parameter_sha256"):
-                raise FeatureSelectionError(f"{track} parent parameter hash drifted.")
             parent_model_file = source_dir / str(source_entry.get("model_file")).replace("\\", "/")
             if not parent_model_file.is_file() or sha256_file(
                 parent_model_file
             ) != source_entry.get("model_sha256"):
                 raise FeatureSelectionError(f"{track} locked parent model hash mismatch.")
+
+            parent_model = CatBoostClassifier()
+            parent_model.load_model(str(parent_model_file), format="cbm")
+            _validate_actual_model_parameters(
+                effective_parameters(parent_model), expected_parent, f"{track} parent model", errors
+            )
+            del parent_model
+
+            selected_model = CatBoostClassifier()
+            selected_model.load_model(str(selected_model_file), format="cbm")
+            _validate_actual_model_parameters(
+                effective_parameters(selected_model),
+                expected_parent,
+                f"{track} selected model",
+                errors,
+            )
+            del selected_model
 
             parent_spec = inputs.feature_sets[TRACK_TO_EXPERIMENT[track]]
             parent_probabilities, parent_metrics = _load_validation_model_metrics(
@@ -581,24 +733,38 @@ def validate_selection_directory(  # pragma: no cover
                 raise FeatureSelectionError(
                     f"{track} selected model probabilities do not reproduce."
                 )
-            _metric_values_match(
-                validation_metrics.get("candidate_metrics", {}).get(candidate["candidate_id"], {}),
-                selected_metrics,
-                f"{track} selected validation metrics",
-                errors,
+            selected_persisted_metrics = validation_metrics.get("candidate_metrics", {}).get(
+                candidate["candidate_id"], {}
             )
-            _metric_values_match(
-                parent_entry.get("parent_validation_metrics", {}),
-                parent_metrics,
-                f"{track} parent validation metrics",
-                errors,
-            )
-            _metric_values_match(
-                phase10_metrics.get("candidate_metrics", {}).get(parent_id, {}),
-                parent_metrics,
-                f"{track} Phase 10 parent validation metrics",
-                errors,
-            )
+            parent_persisted_metrics = parent_entry.get("parent_validation_metrics", {})
+            phase10_parent_metrics = phase10_metrics.get("candidate_metrics", {}).get(parent_id, {})
+            if _require_metric_schema(
+                selected_persisted_metrics, f"{track} selected validation", errors
+            ):
+                _metric_values_match(
+                    selected_persisted_metrics,
+                    selected_metrics,
+                    f"{track} selected validation metrics",
+                    errors,
+                )
+            if _require_metric_schema(
+                parent_persisted_metrics, f"{track} parent validation", errors
+            ):
+                _metric_values_match(
+                    parent_persisted_metrics,
+                    parent_metrics,
+                    f"{track} parent validation metrics",
+                    errors,
+                )
+            if _require_metric_schema(
+                phase10_parent_metrics, f"{track} Phase 10 parent validation", errors
+            ):
+                _metric_values_match(
+                    phase10_parent_metrics,
+                    parent_metrics,
+                    f"{track} Phase 10 parent validation metrics",
+                    errors,
+                )
             parent_metrics_by_track[track] = {
                 **parent_metrics,
                 "feature_count": parent_entry.get("parent_feature_count"),
@@ -658,18 +824,14 @@ def validate_selection_directory(  # pragma: no cover
                     "candidate_id": candidate_id,
                     "metrics": metrics,
                     "feature_count": metrics["feature_count"],
+                    "parent_candidate_id": parent_manifest["tracks"][track][
+                        "effective_parent_candidate_id"
+                    ],
+                    "is_parent_candidate": candidate_id
+                    == parent_manifest["tracks"][track]["effective_parent_candidate_id"],
                 }
             )
-        champion = sorted(
-            effective_outer,
-            key=lambda row: (
-                -float(row["metrics"]["average_precision"]),
-                -float(row["metrics"]["roc_auc"]),
-                float(row["metrics"]["log_loss"]),
-                int(row["feature_count"]),
-                str(row["candidate_id"]),
-            ),
-        )[0]["candidate_id"]
+        champion = select_phase11_champion(effective_outer)["candidate_id"]
         if champion != validation_metrics.get("phase11_development_champion"):
             raise FeatureSelectionError("Phase 11 development champion does not reproduce.")
         if champion != manifest.get("phase11_development_champion"):
