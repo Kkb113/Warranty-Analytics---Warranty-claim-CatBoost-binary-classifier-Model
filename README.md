@@ -214,3 +214,11 @@ by exact object name only; their contents are never read.
 - [Schema contract notes](contracts/README.md)
 - [Phase 1 scaffolding record](docs/phase_1_scaffolding.md)
 - [Contributing guide](CONTRIBUTING.md)
+
+## Phase 11 feature selection
+
+Phase 11 evaluates lineage-backed feature families and nested feature subsets
+using the locked Phase 10 inner folds. See
+[`docs/phase_11_feature_selection_ablation.md`](docs/phase_11_feature_selection_ablation.md)
+for the contract, checkpoint/resume commands, and acceptance gates.
+

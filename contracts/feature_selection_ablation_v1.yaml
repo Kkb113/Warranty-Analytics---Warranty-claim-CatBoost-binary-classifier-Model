@@ -1,0 +1,43 @@
+phase11:
+  phase: 11
+  version: phase11_feature_selection_ablation_v1
+  required_phase9_run_id: 20260811T_PHASE9_FINAL
+  required_phase10_run_id: 20260811T_PHASE10
+  required_phase9_hardened_status: HARDENED_PASS
+  required_phase10_hardened_status: HARDENED_PASS
+  required_phase10_contract_version: phase10_catboost_optimization_v2
+  parent_tracks:
+    T1: E1
+    T3: E3
+  required_feature_set_hashes:
+    T1: 4a8de5a69ce72bf6059f9856252d68465d464fecfb56242f5fa55646edae7b89
+    T3: 13859692eec0494879712b6ac66a3ce06f64cd75ff93de5c80e2c0a67b701738
+  parent_feature_counts:
+    T1: 301
+    T3: 536
+  feature_addition: prohibited
+  feature_removal: allowed
+  hyperparameter_retuning: prohibited
+  class_weighting: prohibited
+  resampling: prohibited
+  early_stopping: prohibited
+  threshold_tuning: prohibited
+  calibration: prohibited
+  ensembling: prohibited
+  search_target_access: TRAIN_ONLY
+  outer_validation:
+    after_selection_freeze_only: true
+    new_candidates_maximum: 2
+  test_target_access:
+    forbidden_until_phase: 15
+    target_rows_loaded: 0
+    predictions_created: 0
+    metrics_computed: false
+  primary_metric: mean_average_precision
+  inner_cv:
+    source_outer_split: TRAIN
+    fold_count: 3
+    expected_fold_artifact: inner_cv_folds.parquet
+    expected_manifest_artifact: inner_cv_manifest.json
+    metric_tolerance: 0.0000000001
+
