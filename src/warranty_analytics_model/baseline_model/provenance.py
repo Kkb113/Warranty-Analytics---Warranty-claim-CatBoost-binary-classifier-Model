@@ -47,6 +47,7 @@ MODEL_CORE_PARAMETERS: dict[str, Any] = {
 }
 DISABLED_WEIGHT_VALUES = (None, False, 0, 1, "", "none", "None", "false", "disabled")
 PHASE9_RUNTIME_EXTRAS = ("profiling", "mart", "modeling")
+PHASE10_RUNTIME_EXTRAS = ("optimization",)
 PHASE9_RUNTIME_DISTRIBUTIONS = {
     "numpy": "numpy_version",
     "pandas": "pandas_version",
@@ -63,10 +64,10 @@ def _distribution_version(distribution: str) -> str:
         return "unavailable"
 
 
-def runtime_provenance() -> dict[str, str]:
+def runtime_provenance(*, include_optimization: bool = False) -> dict[str, str]:
     """Return secret-free interpreter, library, and host provenance."""
 
-    return {
+    payload = {
         "python_version": platform.python_version(),
         "python_implementation": platform.python_implementation(),
         "catboost_version": _distribution_version("catboost"),
@@ -78,43 +79,60 @@ def runtime_provenance() -> dict[str, str]:
         "machine": platform.machine(),
         "os": platform.system(),
     }
+    if include_optimization:
+        payload["optuna_version"] = _distribution_version("optuna")
+    return payload
 
 
-def _phase9_declared_requirements(project_root: Path) -> tuple[str, dict[str, str]]:
+def _phase9_declared_requirements(
+    project_root: Path, *, include_optimization: bool = False
+) -> tuple[str, dict[str, str]]:
     pyproject_path = project_root / "pyproject.toml"
     with pyproject_path.open("rb") as handle:
         project = tomllib.load(handle).get("project", {})
     python_requirement = str(project.get("requires-python", "")).strip()
     optional = project.get("optional-dependencies", {})
     raw_requirements = list(project.get("dependencies", []))
-    for extra in PHASE9_RUNTIME_EXTRAS:
+    extras = PHASE9_RUNTIME_EXTRAS + (PHASE10_RUNTIME_EXTRAS if include_optimization else ())
+    distributions = dict(PHASE9_RUNTIME_DISTRIBUTIONS)
+    if include_optimization:
+        distributions["optuna"] = "optuna_version"
+    for extra in extras:
         raw_requirements.extend(optional.get(extra, []))
 
     specifier_parts: dict[str, list[str]] = {}
     for raw in raw_requirements:
         requirement = Requirement(str(raw))
         name = canonicalize_name(requirement.name)
-        if name not in PHASE9_RUNTIME_DISTRIBUTIONS:
+        if name not in distributions:
             continue
         parts = [part.strip() for part in str(requirement.specifier).split(",") if part.strip()]
         bucket = specifier_parts.setdefault(name, [])
         bucket.extend(part for part in parts if part not in bucket)
     return python_requirement, {
-        name: ",".join(specifier_parts.get(name, [])) for name in PHASE9_RUNTIME_DISTRIBUTIONS
+        name: ",".join(specifier_parts.get(name, [])) for name in distributions
     }
 
 
 def validate_runtime_dependency_constraints(
     project_root: Path,
     runtime: dict[str, Any] | None = None,
+    *,
+    include_optimization: bool = False,
 ) -> dict[str, Any]:
     """Validate Phase 9 runtime versions against authoritative project metadata."""
 
-    observed = runtime_provenance() if runtime is None else runtime
+    observed = (
+        runtime_provenance(include_optimization=include_optimization)
+        if runtime is None
+        else runtime
+    )
     errors: list[str] = []
     checked: dict[str, dict[str, Any]] = {}
     try:
-        python_requirement, package_requirements = _phase9_declared_requirements(project_root)
+        python_requirement, package_requirements = _phase9_declared_requirements(
+            project_root, include_optimization=include_optimization
+        )
     except (OSError, tomllib.TOMLDecodeError, InvalidRequirement) as exc:
         return {
             "status": "BLOCKED",
@@ -125,6 +143,8 @@ def validate_runtime_dependency_constraints(
 
     requirements = {"python": python_requirement, **package_requirements}
     version_keys = {"python": "python_version", **PHASE9_RUNTIME_DISTRIBUTIONS}
+    if include_optimization:
+        version_keys["optuna"] = "optuna_version"
     for name, requirement_text in requirements.items():
         actual = str(observed.get(version_keys[name], "")).strip()
         compatible = False

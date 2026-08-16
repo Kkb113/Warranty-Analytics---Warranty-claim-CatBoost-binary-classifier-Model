@@ -56,3 +56,6 @@ jobs:
 
       - name: Validate Phase 9 baseline model contract offline
         run: warranty-model phase9-contract-check
+
+      - name: Validate Phase 10 CatBoost optimization contract offline
+        run: warranty-model phase10-contract-check

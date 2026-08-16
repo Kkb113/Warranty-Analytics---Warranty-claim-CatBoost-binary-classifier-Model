@@ -100,3 +100,19 @@ and the Phase 15 TEST-target seal. Validate it offline with:
 Generated models, validation-only predictions, manifests, and aggregate reports
 remain local ignored outputs under `artifacts/baseline_models/` and
 `reports/phase9_baseline_models/`.
+
+Phase 10 adds `catboost_optimization.yaml` and
+`configs/catboost_optimization.yaml`. It freezes optimization to T1/E1 and
+T3/E3, uses three chronological same-date-grouped inner folds from outer TRAIN
+only, and requires sequential Optuna studies with no class weighting,
+resampling, early stopping, calibration, feature selection, or ensembling.
+Outer VALIDATION is opened only after `study_freeze.json` and only two finalists
+are evaluated. Phase 9 remains immutable; TEST target access and TEST hashes
+remain forbidden until Phase 15, while Phase 11 owns feature selection. Validate
+the policy offline with:
+
+    warranty-model phase10-contract-check
+
+Phase 10 artifacts and aggregate reports remain local ignored outputs under
+`artifacts/catboost_optimization/` and
+`reports/phase10_catboost_optimization/`.

@@ -43,6 +43,9 @@ modeling = [
     "catboost>=1.2.10,<2",
     "scikit-learn>=1.5,<2",
 ]
+optimization = [
+    "optuna>=4,<5",
+]
 
 [project.scripts]
 warranty-model = "warranty_analytics_model.cli:main"

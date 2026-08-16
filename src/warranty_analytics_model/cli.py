@@ -306,6 +306,42 @@ def build_parser() -> argparse.ArgumentParser:
     phase9_validate.add_argument(
         "--model-dir", type=Path, required=True, help="Phase 9 model run directory."
     )
+    subparsers.add_parser(
+        "phase10-contract-check",
+        help="Validate the Phase 10 CatBoost optimization contract and fixed configuration offline.",
+    )
+    phase10_plan = subparsers.add_parser(
+        "phase10-plan-check",
+        help="Validate the locked Phase 9 input and TRAIN-only Phase 10 inner-fold plan.",
+    )
+    phase10_plan.add_argument(
+        "--phase9-dir", type=Path, required=True, help="Locked Phase 9 model run directory."
+    )
+    phase10_optimize = subparsers.add_parser(
+        "phase10-optimize",
+        help="Run the two sequential Phase 10 CatBoost optimization studies.",
+    )
+    phase10_optimize.add_argument(
+        "--phase9-dir", type=Path, required=True, help="Locked Phase 9 model run directory."
+    )
+    phase10_optimize.add_argument(
+        "--output-dir", type=Path, help="Phase 10 artifact root override."
+    )
+    phase10_optimize.add_argument("--report-dir", type=Path, help="Phase 10 report root override.")
+    phase10_optimize.add_argument("--run-id", help="Explicit immutable Phase 10 run identifier.")
+    phase10_optimize.add_argument(
+        "--overwrite", action="store_true", help="Replace the named local run."
+    )
+    phase10_optimize.add_argument(
+        "--no-report", action="store_true", help="Do not write aggregate reports."
+    )
+    phase10_validate = subparsers.add_parser(
+        "phase10-validate",
+        help="Reload and validate an existing Phase 10 optimization run offline.",
+    )
+    phase10_validate.add_argument(
+        "--optimization-dir", type=Path, required=True, help="Phase 10 optimization run directory."
+    )
     return parser
 
 
@@ -1194,6 +1230,89 @@ def _run_phase9_validate(arguments: argparse.Namespace) -> int:
     return 0 if result.get("valid") else 1
 
 
+def _run_phase10_contract_check() -> int:
+    try:
+        from .catboost_optimization.runner import phase10_contract_check
+
+        result = phase10_contract_check()
+    except Exception as exc:
+        print(f"Phase 10 contract check BLOCKED: {exc}", file=sys.stderr)
+        return 1
+    print(f"Phase 10 contract check: {result.get('status', 'BLOCKED')}")
+    print(f"Contract SHA-256: {result.get('contract_checksum', '-')}")
+    for error in result.get("errors", []):
+        print(f"ERROR: {error}")
+    for warning in result.get("warnings", []):
+        print(f"WARNING: {warning}")
+    return 0 if result.get("valid") else 1
+
+
+def _run_phase10_plan_check(arguments: argparse.Namespace) -> int:
+    try:
+        from .catboost_optimization.runner import phase10_plan_check
+
+        result = phase10_plan_check(arguments.phase9_dir)
+    except Exception as exc:
+        print(f"Phase 10 plan check BLOCKED: {exc}", file=sys.stderr)
+        return 1
+    print(f"Phase 10 plan check: {result.get('status', 'BLOCKED')}")
+    inputs = result.get("inputs")
+    if inputs is not None:
+        print(f"Locked Phase 9 run: {inputs.phase9_dir}")
+        print(
+            f"Population: {inputs.phase9_manifest.get('frozen_membership', {}).get('counts', {})}"
+        )
+    fold_plan = result.get("inner_fold_plan")
+    if fold_plan is not None:
+        print(f"Inner folds: {len(fold_plan.folds)}; hash: {fold_plan.content_sha256}")
+    for error in result.get("errors", []):
+        print(f"ERROR: {error}")
+    for warning in result.get("warnings", []):
+        print(f"WARNING: {warning}")
+    return 0 if result.get("valid") else 1
+
+
+def _run_phase10_optimize(arguments: argparse.Namespace) -> int:
+    try:
+        from .catboost_optimization.runner import build_phase10
+
+        result = build_phase10(
+            arguments.phase9_dir,
+            output_dir=arguments.output_dir,
+            report_dir=arguments.report_dir,
+            run_id=arguments.run_id,
+            overwrite=arguments.overwrite,
+            no_report=arguments.no_report,
+        )
+    except Exception as exc:
+        print(f"Phase 10 optimization BLOCKED: {exc}", file=sys.stderr)
+        return 1
+    print(f"Phase 10 status: {result.get('status', 'BLOCKED')}")
+    print(f"Optimization run directory: {result.get('run_directory', '-')}")
+    print(f"Development champion: {result.get('phase10_development_champion', '-')}")
+    if result.get("report_directory"):
+        print(f"Report directory: {result['report_directory']}")
+    for warning in result.get("warnings", []):
+        print(f"WARNING: {warning}")
+    return 0 if result.get("status") in {"PASS", "PASS WITH WARNINGS"} else 1
+
+
+def _run_phase10_validate(arguments: argparse.Namespace) -> int:
+    try:
+        from .catboost_optimization.runner import validate_existing_optimization_run
+
+        result = validate_existing_optimization_run(arguments.optimization_dir)
+    except Exception as exc:
+        print(f"Phase 10 validation BLOCKED: {exc}", file=sys.stderr)
+        return 1
+    print(f"Phase 10 validation: {result.get('status', 'BLOCKED')}")
+    for error in result.get("errors", []):
+        print(f"ERROR: {error}")
+    for warning in result.get("warnings", []):
+        print(f"WARNING: {warning}")
+    return 0 if result.get("valid") else 1
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run one supported CLI command."""
 
@@ -1257,6 +1376,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_phase9_train(arguments)
     if arguments.command == "phase9-validate":
         return _run_phase9_validate(arguments)
+    if arguments.command == "phase10-contract-check":
+        return _run_phase10_contract_check()
+    if arguments.command == "phase10-plan-check":
+        return _run_phase10_plan_check(arguments)
+    if arguments.command == "phase10-optimize":
+        return _run_phase10_optimize(arguments)
+    if arguments.command == "phase10-validate":
+        return _run_phase10_validate(arguments)
     if arguments.command in {"data-profile", "synthetic-audit", "data-quality-check", "phase3-run"}:
         return _run_phase3(arguments)
     parser.error(f"Unsupported command: {arguments.command}")

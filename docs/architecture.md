@@ -36,6 +36,9 @@ serves inference.
 - baseline_model/: Phase 9 fixed experiment definitions, adapters, CatBoost
   training, validation-only metrics, manifests, reporting, and model reload
   validation.
+- catboost_optimization/: Phase 10 immutable E1/E3 track optimization,
+  TRAIN-only chronological inner folds, sequential Optuna studies, finalist
+  fitting, manifests, reports, and standalone validation.
 - models/: Phase 5 and later boundary for training and model artifacts.
 - evaluation/: Phase 5 and later boundary for metrics and calibration.
 - inference/: Phase 5 and later boundary for inference; no inference exists in
@@ -145,6 +148,11 @@ settings.
   prohibited. The output is a companion artifact to Phase 7.
 - Phase 9: fixed CatBoost baseline training on TRAIN and champion selection on
   VALIDATION. TEST labels, predictions, and metrics remain sealed for Phase 15.
+- Phase 10: CatBoost hyperparameter optimization for only Phase 9 E1 and E3.
+  Three expanding same-date-grouped inner folds use outer TRAIN only; outer
+  VALIDATION is opened only after the study freeze and only for two finalists.
+  Phase 9 remains permanently locked, TEST remains sealed until Phase 15, and
+  Phase 11 owns feature selection.
 - Later phases: evaluation, calibration, inference, and monitoring.
 
 These boundaries preserve the Phase 0 contract and prevent infrastructure work
