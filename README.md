@@ -7,7 +7,7 @@ unresolved business and availability questions are not inferred by code.
 
 ## Current status
 
-Current phase: **Phase 9 — Baseline Model Training**.
+Current phase: **Phase 10 — CatBoost Optimization**.
 
 Phase 0 model-contract, Phase 1 scaffolding, Phase 2 read-only data access /
 schema validation, and the Phase 3 live profiling run are complete. The live
@@ -40,7 +40,7 @@ reports/phase4_validation/20260810T101935Z/.
 
 ## Local setup
 
-    python -m pip install -e ".[dev,database,profiling,mart,modeling]"
+    python -m pip install -e ".[dev,database,profiling,mart,modeling,optimization]"
 
 The optional `.env` file is local-only. Copy `.env.example` to `.env` and set
 live database values only through a secure local environment. Never commit
@@ -79,6 +79,10 @@ credentials or database exports.
     warranty-model phase9-plan-check --mart-dir artifacts/feature_mart/<run_id> --split-dir artifacts/splits/<run_id> --structured-dir artifacts/structured_features/<run_id> --text-dir artifacts/text_features/<run_id>
     warranty-model phase9-train --mart-dir artifacts/feature_mart/<run_id> --split-dir artifacts/splits/<run_id> --structured-dir artifacts/structured_features/<run_id> --text-dir artifacts/text_features/<run_id>
     warranty-model phase9-validate --model-dir artifacts/baseline_models/<run_id>
+    warranty-model phase10-contract-check
+    warranty-model phase10-plan-check --phase9-dir artifacts/baseline_models/20260811T_PHASE9_FINAL
+    warranty-model phase10-optimize --phase9-dir artifacts/baseline_models/20260811T_PHASE9_FINAL --run-id 20260811T_PHASE10
+    warranty-model phase10-validate --optimization-dir artifacts/catboost_optimization/20260811T_PHASE10
 
 Phase 3 commands share the read-only extractor but select distinct task groups:
 `data-profile` runs profiling and target/category/missingness diagnostics,
@@ -143,6 +147,13 @@ prediction, or metric is accessed or generated. Phase 10 may start only after
 the hardened run/comparison passes; this remains a synthetic POC and is not
 production approval.
 
+Phase 10 optimizes only immutable Phase 9 E1 CORE (T1) and E3
+structured-plus-lexical (T3) tracks with three TRAIN-only chronological inner
+folds and 50 sequential Optuna trials per track. Outer VALIDATION opens only
+after `study_freeze.json`; TEST targets, predictions, metrics, and hashes remain
+sealed until Phase 15. Phase 11 owns feature selection. See
+`docs/phase_10_catboost_optimization.md` for the contract and run sequence.
+
 ## Repository structure
 
 - `contracts/`: version-controlled schema contract and provenance notes.
@@ -199,6 +210,7 @@ by exact object name only; their contents are never read.
 - [Phase 7 structured feature engineering](docs/phase_7_structured_feature_engineering.md)
 - [Phase 8 text feature development](docs/phase_8_text_feature_development.md)
 - [Phase 9 baseline model training](docs/phase_9_baseline_model_training.md)
+- [Phase 10 CatBoost optimization](docs/phase_10_catboost_optimization.md)
 - [Schema contract notes](contracts/README.md)
 - [Phase 1 scaffolding record](docs/phase_1_scaffolding.md)
 - [Contributing guide](CONTRIBUTING.md)

@@ -81,6 +81,10 @@ output into tickets or logs if local environment metadata is sensitive.
     python -m warranty_analytics_model phase9-plan-check --mart-dir <phase5> --split-dir <phase6> --structured-dir <phase7> --text-dir <phase8>
     python -m warranty_analytics_model phase9-train --mart-dir <phase5> --split-dir <phase6> --structured-dir <phase7> --text-dir <phase8>
     python -m warranty_analytics_model phase9-validate --model-dir artifacts/baseline_models/<run_id>
+    python -m warranty_analytics_model phase10-contract-check
+    python -m warranty_analytics_model phase10-plan-check --phase9-dir artifacts/baseline_models/20260811T_PHASE9_FINAL
+    python -m warranty_analytics_model phase10-optimize --phase9-dir artifacts/baseline_models/20260811T_PHASE9_FINAL --run-id 20260811T_PHASE10
+    python -m warranty_analytics_model phase10-validate --optimization-dir artifacts/catboost_optimization/20260811T_PHASE10
     python -m ruff check .
     python -m ruff format --check .
     python -m mypy src
@@ -161,3 +165,11 @@ and plan gates against the exact Phase 5–8 directories, then train. Models fit
 on TRAIN only and are evaluated on VALIDATION only. Generated `.cbm` files,
 validation-only predictions, manifests, and aggregate reports remain ignored;
 the TEST target is not read.
+
+Phase 10 extends the setup with the `optimization` extra (`optuna>=4,<5`).
+Phase 9 is permanently locked and must be passed with `--phase9-dir`; Phase 10
+optimizes only T1/E1 and T3/E3 with 50 sequential trials per track on
+TRAIN-only, date-grouped expanding inner folds. Outer VALIDATION labels are
+blocked until the study freeze, and only two frozen finalists may score
+VALIDATION. TEST targets, predictions, metrics, and hashes remain sealed until
+Phase 15. Phase 11 owns feature selection.

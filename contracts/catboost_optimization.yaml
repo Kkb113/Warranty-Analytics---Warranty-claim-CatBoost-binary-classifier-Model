@@ -1,0 +1,29 @@
+phase10:
+  version: phase10_catboost_optimization_v1
+  phase9_input: HARDENED_PASS_ONLY
+  tracks:
+    - T1
+    - T3
+  phase9_experiments:
+    T1: E1
+    T3: E3
+  search_parameters:
+    - iterations
+    - learning_rate
+    - depth
+    - l2_leaf_reg
+    - random_strength
+    - bagging_temperature
+    - border_count
+    - rsm
+  inner_validation:
+    source_outer_split: TRAIN
+    fold_count: 3
+    boundary_fractions: [0.55, 0.70, 0.85, 1.00]
+    same_date_groups: true
+    strict_before: true
+  outer_validation:
+    loaded_after_study_freeze_only: true
+    finalist_count: 2
+  test_target_access: FORBIDDEN_UNTIL_PHASE_15
+  feature_selection_owner: phase11
