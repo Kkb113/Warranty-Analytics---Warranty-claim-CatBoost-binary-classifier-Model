@@ -22,7 +22,7 @@ jobs:
       - name: Install package and development dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".[dev,database,profiling,mart,modeling]"
+          python -m pip install -e ".[dev,database,profiling,mart,modeling,optimization]"
 
       - name: Ruff lint
         run: python -m ruff check .
@@ -59,3 +59,4 @@ jobs:
 
       - name: Validate Phase 10 CatBoost optimization contract offline
         run: warranty-model phase10-contract-check
+

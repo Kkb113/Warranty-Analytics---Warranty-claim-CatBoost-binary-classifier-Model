@@ -385,9 +385,17 @@ def build_phase10(
             "run_id": selected_run_id,
             "created_at_utc": datetime.now(UTC).isoformat(),
             "git_commit_sha": git_commit_sha(root),
+            "contract_version": contract.get("contract_version"),
+            "contract_checksum": contract.get("contract_checksum"),
+            "contract_policy_snapshot": contract.get("contract", {}).get("phase10", {}),
             "phase9_dir": str(phase10_inputs.phase9_dir),
             "phase9_run_id": phase10_inputs.phase9_manifest.get("run_id"),
             "phase9_hardened_status": "HARDENED_PASS",
+            "phase9_target_hashes": phase10_inputs.phase9_manifest.get("target_hashes"),
+            "phase9_feature_set_hashes": {
+                track: phase10_inputs.feature_sets[TRACK_TO_EXPERIMENT[track]].feature_set_sha256
+                for track in settings.tracks
+            },
             "input_hashes": phase10_inputs.phase9_manifest.get("input_hashes"),
             "frozen_membership": phase10_inputs.phase9_manifest.get("frozen_membership"),
             "outer_population": phase10_inputs.phase9_manifest.get("frozen_membership", {}).get(
@@ -406,6 +414,8 @@ def build_phase10(
                 for track in settings.tracks
             },
             "settings": settings_payload(settings),
+            "trials_per_track": settings.trials_per_track,
+            "objective_metric": "mean_average_precision",
             "runtime_versions": runtime,
             "dependency_compatibility": dependencies,
             "inner_fold_content_sha256": fold_plan.content_sha256,
@@ -470,4 +480,9 @@ def validate_existing_optimization_run(
     *,
     project_root: Path | None = None,
 ) -> dict[str, Any]:
-    return validate_optimization_directory(optimization_dir, project_root=project_root)
+    result = validate_optimization_directory(optimization_dir, project_root=project_root)
+    validation_path = optimization_dir.expanduser().resolve() / "validation.json"
+    if validation_path.parent.is_dir():
+        write_json(validation_path, result)
+    return result
+

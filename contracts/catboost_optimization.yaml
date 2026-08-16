@@ -1,6 +1,20 @@
 phase10:
-  version: phase10_catboost_optimization_v1
-  phase9_input: HARDENED_PASS_ONLY
+  version: phase10_catboost_optimization_v2
+  phase9_lock:
+    required_run_id: 20260811T_PHASE9_FINAL
+    required_hardened_status: HARDENED_PASS
+    target_hashes:
+      train: 9d6fde99c726825c1d683cb4fe9394a93d58de1f69a1c5e0561eda698cdf7744
+      validation: fded123cbfe67899d4cba0f29e150a93d2bffd79cda96c97ab459e4c2bef49d2
+    feature_sets:
+      T1:
+        experiment_id: E1
+        feature_count: 301
+        feature_set_sha256: 4a8de5a69ce72bf6059f9856252d68465d464fecfb56242f5fa55646edae7b89
+      T3:
+        experiment_id: E3
+        feature_count: 536
+        feature_set_sha256: 13859692eec0494879712b6ac66a3ce06f64cd75ff93de5c80e2c0a67b701738
   tracks:
     - T1
     - T3
@@ -22,8 +36,80 @@ phase10:
     boundary_fractions: [0.55, 0.70, 0.85, 1.00]
     same_date_groups: true
     strict_before: true
+    fold_evidence:
+      required_artifact: trial_fold_metrics.parquet
+      successful_trial_fold_count: 3
+      fold_ids: [1, 2, 3]
+      aggregate_metric_reproduction: required
+      winning_trial_retraining: required
+  trial_budget:
+    trials_per_track: 50
+    minimum_completed_trials: 40
+    minimum_completed_fraction: 0.80
+  search:
+    sampler: TPESampler
+    n_startup_trials: 10
+    parallel_jobs: 1
+    pruning: false
+    objective_metric: mean_average_precision
+    search_space:
+      iterations: {type: categorical, values: [300, 500, 700, 1000, 1400]}
+      learning_rate: {type: float, low: 0.015, high: 0.15, log: true}
+      depth: {type: int, low: 4, high: 9}
+      l2_leaf_reg: {type: float, low: 1.0, high: 30.0, log: true}
+      random_strength: {type: float, low: 0.0, high: 3.0}
+      bagging_temperature: {type: float, low: 0.0, high: 5.0}
+      border_count: {type: categorical, values: [64, 128, 254]}
+      rsm: {type: float, low: 0.70, high: 1.00}
+  fixed_catboost_policy:
+    loss_function: Logloss
+    bootstrap_type: Bayesian
+    random_seed: 20260810
+    task_type: CPU
+    thread_count: 10
+    allow_writing_files: false
+    verbose: false
+    use_best_model: false
+  class_imbalance_policy:
+    class_weights: none
+    auto_class_weights: none
+    scale_pos_weight: none
+    resampling: prohibited
+  early_stopping_policy: prohibited
+  threshold_policy:
+    value: 0.5
+    tuning: prohibited
+  calibration_policy: prohibited
+  feature_selection_policy:
+    phase10: prohibited
+    owner: phase11
+  objective_policy:
+    primary_metric: mean_average_precision
+    direction: maximize
+    tie_breakers:
+      - min_average_precision
+      - mean_roc_auc
+      - std_average_precision
+      - mean_log_loss
   outer_validation:
     loaded_after_study_freeze_only: true
     finalist_count: 2
-  test_target_access: FORBIDDEN_UNTIL_PHASE_15
+    finalist_models_only: true
+  dependency_policy:
+    optimization_extra: optimization
+    requirements:
+      python: ">=3.11"
+      optuna: ">=4,<5"
+      catboost: ">=1.2.10,<2"
+      pandas: ">=2.0,<3"
+      numpy: ">=1.24,<3"
+      pyarrow: ">=14.0,<20"
+      scikit-learn: ">=1.5,<2"
+  test_target_access:
+    policy: FORBIDDEN_UNTIL_PHASE_15
+    first_allowed_phase: 15
+  provenance:
+    manifest_contract_checksum_field: contract_checksum
+    manifest_contract_snapshot_field: contract_policy_snapshot
   feature_selection_owner: phase11
+
