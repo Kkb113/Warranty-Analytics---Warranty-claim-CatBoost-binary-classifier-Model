@@ -187,3 +187,10 @@ frozen Phase 10 inner folds. Outer VALIDATION is opened only after the
 selection freeze, and TEST labels remain unavailable. Run `phase11-validate`
 before consuming any Phase 11 model or report.
 
+Phase 12 extends the workflow with bounded weighting and raw-score threshold
+optimization. Run `phase12-contract-check` and
+`phase12-plan-check --phase11-dir <accepted-run>` before training; use the
+execution-only CPU overrides when needed, and run `phase12-validate` before
+consuming a completed bundle. TEST labels remain sealed and calibration is
+owned by Phase 13.
+

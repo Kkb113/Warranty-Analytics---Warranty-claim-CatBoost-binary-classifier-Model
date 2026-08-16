@@ -1,0 +1,31 @@
+phase12:
+  phase: 12
+  version: phase12_imbalance_threshold_v1
+  required_phase9_hardened_status: HARDENED_PASS
+  required_phase10_hardened_status: HARDENED_PASS
+  required_phase11_hardened_status: HARDENED_PASS
+  parent_tracks: [T1, T3]
+  feature_changes: prohibited
+  hyperparameter_retuning: prohibited
+  imbalance_methods:
+    weighting: allowed
+    resampling: prohibited
+  allowed_strategies:
+    - S0_NONE
+    - S1_SCALE_POS_WEIGHT_2
+    - S2_SCALE_POS_WEIGHT_4
+    - S3_SCALE_POS_WEIGHT_8
+    - S4_SCALE_POS_WEIGHT_16
+    - S5_SCALE_POS_WEIGHT_32
+    - S6_AUTO_SQRT_BALANCED
+    - S7_AUTO_BALANCED
+  calibration: prohibited_until_phase_13
+  ensembling: prohibited_until_phase_13
+  optimization_target_access: TRAIN_ONLY
+  model_selection_primary_metric: mean_average_precision
+  threshold_selection_primary_metric: matthews_correlation_coefficient
+  outer_validation:
+    after_phase12_freeze_only: true
+    maximum_new_weighted_candidates: 2
+  test:
+    forbidden_until_phase: 15

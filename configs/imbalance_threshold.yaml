@@ -1,0 +1,55 @@
+phase12_imbalance_threshold:
+  tracks: [T1, T3]
+  primary_ranking_metric: mean_average_precision
+  strategies:
+    - id: S0_NONE
+      type: none
+    - id: S1_SCALE_POS_WEIGHT_2
+      type: scale_pos_weight
+      value: 2.0
+    - id: S2_SCALE_POS_WEIGHT_4
+      type: scale_pos_weight
+      value: 4.0
+    - id: S3_SCALE_POS_WEIGHT_8
+      type: scale_pos_weight
+      value: 8.0
+    - id: S4_SCALE_POS_WEIGHT_16
+      type: scale_pos_weight
+      value: 16.0
+    - id: S5_SCALE_POS_WEIGHT_32
+      type: scale_pos_weight
+      value: 32.0
+    - id: S6_AUTO_SQRT_BALANCED
+      type: auto_class_weights
+      value: SqrtBalanced
+    - id: S7_AUTO_BALANCED
+      type: auto_class_weights
+      value: Balanced
+  strategy_selection:
+    max_ap_tolerance: 0.0025
+    max_min_ap_drop: 0.005
+    max_roc_auc_drop: 0.010
+    prefer_none_mcc_tolerance: 0.005
+  threshold:
+    primary_metric: matthews_correlation_coefficient
+    grid:
+      start: 0.001
+      stop: 0.999
+      step: 0.001
+    tie_tolerance: 1.0e-12
+    tie_break: [higher_f2, higher_recall, higher_precision, lower_threshold]
+  outer_replacement:
+    ap_improvement_tolerance: 0.000001
+    max_ap_regression_for_mcc_gain: 0.0005
+    max_roc_auc_regression: 0.005
+    required_mcc_gain: 0.005
+  compute:
+    high_performance_local: true
+    preferred_search_workers: 4
+    preferred_threads_per_search_fit: 5
+    preferred_single_fit_threads: 16
+    reserve_logical_threads: 2
+  checkpoint_each_fold: true
+  resume_supported: true
+  output_directory: artifacts/imbalance_threshold
+  report_directory: reports/phase12_imbalance_threshold

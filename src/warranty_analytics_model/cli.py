@@ -397,6 +397,47 @@ def build_parser() -> argparse.ArgumentParser:
     phase11_validate.add_argument(
         "--json", action="store_true", help="Print machine-readable validation JSON."
     )
+    subparsers.add_parser(
+        "phase12-contract-check",
+        help="Validate the Phase 12 imbalance and threshold contract offline.",
+    )
+    phase12_plan = subparsers.add_parser(
+        "phase12-plan-check",
+        help="Validate Phase 11 parents, frozen folds, and the Phase 12 CPU plan.",
+    )
+    phase12_plan.add_argument(
+        "--phase11-dir", type=Path, required=True, help="Accepted Phase 11 run directory."
+    )
+    phase12_plan.add_argument("--max-workers", type=int, help="Bounded strategy workers.")
+    phase12_plan.add_argument("--threads-per-fit", type=int, help="CatBoost threads per fit.")
+    phase12_plan.add_argument("--single-fit-threads", type=int, help="Threads for finalist fits.")
+    phase12_optimize = subparsers.add_parser(
+        "phase12-optimize",
+        help="Run TRAIN-only Phase 12 weighting and threshold optimization, then controlled validation.",
+    )
+    phase12_optimize.add_argument(
+        "--phase11-dir", type=Path, required=True, help="Accepted Phase 11 run directory."
+    )
+    phase12_optimize.add_argument(
+        "--output-dir", type=Path, help="Phase 12 artifact root override."
+    )
+    phase12_optimize.add_argument("--report-dir", type=Path, help="Phase 12 report root override.")
+    phase12_optimize.add_argument("--run-id", help="Explicit immutable Phase 12 run identifier.")
+    phase12_optimize.add_argument(
+        "--resume", action="store_true", help="Resume valid fold checkpoints."
+    )
+    phase12_optimize.add_argument("--max-workers", type=int, help="Bounded strategy workers.")
+    phase12_optimize.add_argument("--threads-per-fit", type=int, help="CatBoost threads per fit.")
+    phase12_optimize.add_argument(
+        "--single-fit-threads", type=int, help="Threads for finalist fits."
+    )
+    phase12_validate = subparsers.add_parser(
+        "phase12-validate", help="Independently validate a completed Phase 12 run."
+    )
+    phase12_validate.add_argument(
+        "--phase12-dir", type=Path, required=True, help="Phase 12 run directory."
+    )
+    phase12_validate.add_argument("--json", action="store_true", help="Print validation JSON.")
     return parser
 
 
@@ -1467,6 +1508,106 @@ def _run_phase11_validate(arguments: argparse.Namespace) -> int:
     return 0 if result.get("valid") else 1
 
 
+def _run_phase12_contract_check() -> int:
+    try:
+        from .imbalance_threshold.runner import phase12_contract_check
+
+        result = phase12_contract_check()
+    except Exception as exc:
+        print(f"Phase 12 contract check BLOCKED: {exc}", file=sys.stderr)
+        return 1
+    print(f"Phase 12 contract check: {result.get('status', 'BLOCKED')}")
+    print(f"Contract version: {result.get('contract_version', '-')}")
+    print(f"Contract SHA-256: {result.get('contract_checksum', '-')}")
+    for error in result.get("errors", []):
+        print(f"ERROR: {error}")
+    for warning in result.get("warnings", []):
+        print(f"WARNING: {warning}")
+    return 0 if result.get("valid") else 1
+
+
+def _run_phase12_plan_check(arguments: argparse.Namespace) -> int:
+    try:
+        from .imbalance_threshold.runner import phase12_plan_check
+
+        result = phase12_plan_check(
+            arguments.phase11_dir,
+            max_workers=arguments.max_workers,
+            threads_per_fit=arguments.threads_per_fit,
+            single_fit_threads=arguments.single_fit_threads,
+        )
+    except Exception as exc:
+        print(f"Phase 12 plan check BLOCKED: {exc}", file=sys.stderr)
+        return 1
+    print(f"Phase 12 plan check: {result.get('status', 'BLOCKED')}")
+    compute = result.get("compute_plan")
+    if compute is not None:
+        print(f"Detected logical CPUs: {compute.detected_logical_processors}")
+        print(f"Reserved logical CPUs: {compute.reserved_logical_processors}")
+        print(f"Effective CPU budget: {compute.effective_cpu_budget}")
+        print(f"Parallel workers: {compute.worker_count}")
+        print(f"Threads per search fit: {compute.threads_per_fit}")
+        print(f"Maximum active CatBoost threads: {compute.maximum_concurrent_threads}")
+        print(f"Single-finalist threads: {compute.single_fit_threads}")
+    folds = result.get("inner_fold_plan")
+    if folds is not None:
+        print(f"Inner folds: {len(folds.folds)}; hash: {folds.content_sha256}")
+    for error in result.get("errors", []):
+        print(f"ERROR: {error}")
+    return 0 if result.get("valid") else 1
+
+
+def _run_phase12_optimize(arguments: argparse.Namespace) -> int:
+    try:
+        from .imbalance_threshold.runner import build_phase12
+
+        result = build_phase12(
+            arguments.phase11_dir,
+            output_dir=arguments.output_dir,
+            report_dir=arguments.report_dir,
+            run_id=arguments.run_id,
+            resume=arguments.resume,
+            max_workers=arguments.max_workers,
+            threads_per_fit=arguments.threads_per_fit,
+            single_fit_threads=arguments.single_fit_threads,
+        )
+    except Exception as exc:
+        print(f"Phase 12 optimization BLOCKED: {exc}", file=sys.stderr)
+        return 1
+    print(f"Phase 12 status: {result.get('status', 'BLOCKED')}")
+    print(f"Optimization run directory: {result.get('run_directory', '-')}")
+    print(f"Development champion: {result.get('phase12_development_champion', '-')}")
+    compute = result.get("compute_plan", {})
+    if compute:
+        print(
+            f"CPU plan: {compute.get('worker_count')} workers x "
+            f"{compute.get('threads_per_fit')} search threads; "
+            f"{compute.get('single_fit_threads')} finalist threads"
+        )
+    for warning in result.get("validation", {}).get("warnings", []):
+        print(f"WARNING: {warning}")
+    return 0 if result.get("valid") else 1
+
+
+def _run_phase12_validate(arguments: argparse.Namespace) -> int:
+    try:
+        from .imbalance_threshold.validation import validate_existing_phase12
+
+        result = validate_existing_phase12(arguments.phase12_dir)
+    except Exception as exc:
+        print(f"Phase 12 validation BLOCKED: {exc}", file=sys.stderr)
+        return 1
+    if arguments.json:
+        print(json.dumps(result, sort_keys=True))
+    else:
+        print(f"Phase 12 validation: {result.get('status', 'BLOCKED')}")
+        for error in result.get("errors", []):
+            print(f"ERROR: {error}")
+        for warning in result.get("warnings", []):
+            print(f"WARNING: {warning}")
+    return 0 if result.get("valid") else 1
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run one supported CLI command."""
 
@@ -1546,6 +1687,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_phase11_select(arguments)
     if arguments.command == "phase11-validate":
         return _run_phase11_validate(arguments)
+    if arguments.command == "phase12-contract-check":
+        return _run_phase12_contract_check()
+    if arguments.command == "phase12-plan-check":
+        return _run_phase12_plan_check(arguments)
+    if arguments.command == "phase12-optimize":
+        return _run_phase12_optimize(arguments)
+    if arguments.command == "phase12-validate":
+        return _run_phase12_validate(arguments)
     if arguments.command in {"data-profile", "synthetic-audit", "data-quality-check", "phase3-run"}:
         return _run_phase3(arguments)
     parser.error(f"Unsupported command: {arguments.command}")

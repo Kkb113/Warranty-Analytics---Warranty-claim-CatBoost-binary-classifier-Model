@@ -63,3 +63,6 @@ jobs:
       - name: Validate Phase 11 feature-selection contract offline
         run: warranty-model phase11-contract-check
 
+      - name: Validate Phase 12 imbalance and threshold contract offline
+        run: warranty-model phase12-contract-check
+
