@@ -59,4 +59,3 @@ jobs:
 
       - name: Validate Phase 10 CatBoost optimization contract offline
         run: warranty-model phase10-contract-check
-

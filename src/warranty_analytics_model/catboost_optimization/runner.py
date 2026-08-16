@@ -26,7 +26,7 @@ from .input import (
 from .manifest import artifact_hashes, freeze_payload_sha256, write_table
 from .models import OptimizationError, Phase10Inputs, StudyResult
 from .objective import baseline_search_parameters, evaluate_parameters
-from .provenance import runtime_provenance
+from .provenance import runtime_provenance, write_acceptance_overlay
 from .reporting import write_phase10_reports
 from .selection import select_development_champion
 from .study import require_trial_history_schema, run_track_study, study_history_sha256
@@ -480,8 +480,20 @@ def validate_existing_optimization_run(
     *,
     project_root: Path | None = None,
 ) -> dict[str, Any]:
+    optimization_path = optimization_dir.expanduser().resolve()
     result = validate_optimization_directory(optimization_dir, project_root=project_root)
-    validation_path = optimization_dir.expanduser().resolve() / "validation.json"
+    validation_path = optimization_path / "validation.json"
     if validation_path.parent.is_dir():
         write_json(validation_path, result)
-    return result
+    overlay_path, created = write_acceptance_overlay(
+        optimization_path,
+        validation_result=result,
+        validator_commit_sha=git_commit_sha(discover_repository_root(project_root)),
+    )
+    return {
+        **result,
+        "acceptance_overlay": {
+            "path": str(overlay_path),
+            "created": created,
+        },
+    }

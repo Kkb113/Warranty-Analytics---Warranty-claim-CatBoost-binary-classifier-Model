@@ -33,6 +33,7 @@ from warranty_analytics_model.catboost_optimization.input import (
 )
 from warranty_analytics_model.catboost_optimization.manifest import (
     freeze_payload_sha256,
+    write_json,
     write_table,
 )
 from warranty_analytics_model.catboost_optimization.metrics import (
@@ -47,9 +48,11 @@ from warranty_analytics_model.catboost_optimization.models import (
 )
 from warranty_analytics_model.catboost_optimization.objective import evaluate_parameters
 from warranty_analytics_model.catboost_optimization.provenance import (
+    ACCEPTANCE_OVERLAY_FILENAME,
     canonical_json_sha256,
     fold_content_sha256,
     prediction_sha256,
+    write_acceptance_overlay,
 )
 from warranty_analytics_model.catboost_optimization.reporting import write_phase10_reports
 from warranty_analytics_model.catboost_optimization.search_space import (
@@ -541,6 +544,72 @@ def test_optuna_dependency_gate_rejects_incompatible_version() -> None:
     result = validate_runtime_dependency_constraints(Path.cwd(), runtime, include_optimization=True)
     assert result["valid"] is False
     assert any("optuna" in error for error in result["errors"])
+
+
+def test_acceptance_overlay_does_not_invent_missing_legacy_manifest(tmp_path: Path) -> None:
+    run_dir = tmp_path / "phase10"
+    run_dir.mkdir()
+    write_json(
+        run_dir / "optimization_manifest.json",
+        {
+            "run_id": "20260811T_PHASE10",
+            "git_commit_sha": "legacy-run-sha",
+            "created_at_utc": "2026-08-12T10:23:30+00:00",
+            "phase9_run_id": REQUIRED_PHASE9_RUN_ID,
+            "contract_version": "phase10_catboost_optimization_v2",
+            "contract_checksum": "contract-sha",
+            "contract_policy_snapshot": {},
+            "phase9_target_hashes": {},
+            "phase9_feature_set_hashes": {},
+            "trials_per_track": 50,
+            "objective_metric": "mean_average_precision",
+            "artifact_file_sha256": {"trial_history.parquet": "history-sha"},
+            "test_target_rows_loaded": 0,
+            "test_predictions_created": 0,
+            "test_metrics_computed": False,
+            "test_target_access_allowed": False,
+            "first_allowed_test_target_phase": 15,
+        },
+    )
+    write_json(
+        run_dir / "model_manifest.json",
+        {"models": {"P10_T1_E1_OPTIMIZED": {"model_sha256": "model-sha"}}},
+    )
+    write_json(run_dir / "validation.json", {"status": "PASS WITH WARNINGS"})
+
+    overlay_path, created = write_acceptance_overlay(
+        run_dir,
+        validation_result={
+            "status": "PASS WITH WARNINGS",
+            "hardening_status": "HARDENED_PASS",
+        },
+        validator_commit_sha="hardening-code-sha",
+    )
+    assert created is True
+    assert overlay_path.name == ACCEPTANCE_OVERLAY_FILENAME
+    overlay = json.loads(overlay_path.read_text(encoding="utf-8"))
+    assert overlay["source_manifest"]["sha256"]
+    assert overlay["legacy_manifest"] == {
+        "preserved": False,
+        "path": None,
+        "sha256": None,
+        "status": "UNAVAILABLE",
+        "note": (
+            "No pre-v2 optimization manifest copy was present when this overlay was "
+            "created. The current v2 manifest is recorded as post-hardening evidence "
+            "only; its hash is not claimed as the original manifest hash."
+        ),
+    }
+    assert overlay["hardening"]["validator_commit_sha"] == "hardening-code-sha"
+
+    second_path, second_created = write_acceptance_overlay(
+        run_dir,
+        validation_result={"status": "BLOCKED", "hardening_status": "BLOCKED"},
+        validator_commit_sha="different-sha",
+    )
+    assert second_path == overlay_path
+    assert second_created is False
+    assert json.loads(second_path.read_text(encoding="utf-8")) == overlay
 
 
 def test_phase10_contract_hashes_metrics_and_reports(tmp_path: Path) -> None:

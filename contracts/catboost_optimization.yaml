@@ -112,4 +112,3 @@ phase10:
     manifest_contract_checksum_field: contract_checksum
     manifest_contract_snapshot_field: contract_policy_snapshot
   feature_selection_owner: phase11
-

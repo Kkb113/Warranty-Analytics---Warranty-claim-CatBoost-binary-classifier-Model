@@ -69,8 +69,17 @@ warranty-model phase10-validate \
 The standalone validator reloads Phase 9, verifies all persisted hashes and
 policies, validates every trial's three fold rows and aggregate metrics, and
 re-trains the selected T1 and T3 trials across the three frozen folds (six
-models total). This replay is an acceptance check and does not start Optuna or
-modify the optimization artifacts.
+models total). This replay is an acceptance check: it does not start Optuna or
+rewrite the core optimization evidence. It refreshes `validation.json` with the
+latest acceptance result and, for an existing run, writes a one-time
+`phase10_acceptance_overlay.json` beside the bundle.
+
+The overlay is deliberately separate from the optimization manifest. It records
+the current manifest hash, contract checksum, validator revision, finalist model
+hashes, TEST seal, and whether a pre-v2 manifest copy was preserved. If the
+pre-v2 manifest is unavailable, the overlay records that fact and leaves its
+original hash unset; a post-run v2 manifest is never presented as the original
+legacy evidence.
 
 ## Acceptance evidence
 
@@ -86,4 +95,3 @@ inconsistent evidence is `BLOCKED`.
 The generated reports remain local under
 `reports/phase10_catboost_optimization/`; they are intentionally excluded from
 Git because they contain run-specific model artifacts and metrics.
-
