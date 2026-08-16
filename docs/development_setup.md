@@ -194,3 +194,10 @@ execution-only CPU overrides when needed, and run `phase12-validate` before
 consuming a completed bundle. TEST labels remain sealed and calibration is
 owned by Phase 13.
 
+Phase 13 consumes an accepted Phase 12 directory explicitly. Run
+`phase13-contract-check` and `phase13-plan-check --phase12-dir <accepted-run>`
+before calibration, then use `phase13-calibrate --phase12-dir <accepted-run>`.
+The run freezes its TRAIN-derived calibrators, blend policy, and thresholds
+before opening outer VALIDATION. `phase13-validate` independently regenerates
+the evidence; TEST remains sealed until Phase 15.
+
