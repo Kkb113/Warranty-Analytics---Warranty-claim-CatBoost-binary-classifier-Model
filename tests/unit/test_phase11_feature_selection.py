@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from copy import deepcopy
+from dataclasses import replace
 from pathlib import Path
 
 import pandas as pd
@@ -162,6 +163,35 @@ def test_subset_candidates_selection_and_replacement() -> None:
         {"average_precision": 0.101, "roc_auc": 0.70, "log_loss": 0.13, "feature_count": 20},
         settings,
     )["replace_parent"]
+
+
+def test_candidate_generation_deduplicates_identical_feature_lists() -> None:
+    parent = _parent()
+    settings = replace(
+        load_feature_selection_settings(),
+        candidate_fractions=(1.0, 0.80),
+    )
+    family_by_feature = {name: "maintenance_history" for name in parent.feature_names}
+    stability = [
+        {
+            "feature": name,
+            "top_50_percent_fold_count": 3 if index < 32 else 0,
+            "top_25_percent_fold_count": 1 if index < 32 else 0,
+        }
+        for index, name in enumerate(parent.feature_names)
+    ]
+    candidates = generate_candidates(
+        "T1",
+        parent,
+        list(parent.feature_names),
+        [{"family": "maintenance_history", "delta_ap_vs_parent": 0.0}],
+        stability,
+        family_by_feature,
+        settings,
+    )
+    digests = [feature_list_sha256(candidate.feature_list) for candidate in candidates]
+    assert len(digests) == len(set(digests))
+    assert len(candidates) == 2
 
 
 def test_checkpoint_round_trip_and_stale_rejection(tmp_path: Path) -> None:
@@ -345,6 +375,20 @@ def test_phase11_runner_and_validator_helpers(tmp_path: Path) -> None:
     assert errors == ["expected"]
 
 
+def test_completed_run_cannot_be_resumed_or_overwritten_implicitly(tmp_path: Path) -> None:
+    output = tmp_path / "feature_selection"
+    completed = output / "run-1"
+    completed.mkdir(parents=True)
+    with pytest.raises(ValueError, match="immutable"):
+        phase11_runner.build_phase11(
+            tmp_path / "missing-phase10",
+            output_dir=output,
+            run_id="run-1",
+            resume=True,
+            project_root=Path("."),
+        )
+
+
 def test_phase11_configuration_rejects_policy_drift(tmp_path: Path) -> None:
     isolated_root = tmp_path / "config_project"
     config_dir = isolated_root / "configs"
@@ -370,6 +414,16 @@ def test_phase11_configuration_rejects_policy_drift(tmp_path: Path) -> None:
     rejects(lambda raw: raw.__setitem__("simpler_candidate_selection", None))
     rejects(lambda raw: raw.__setitem__("compute", None))
     rejects(lambda raw: raw.__setitem__("maximum_candidate_subsets_per_track", 9))
+    rejects(lambda raw: raw.__setitem__("minimum_feature_count", 31))
+    rejects(
+        lambda raw: raw["simpler_candidate_selection"].__setitem__("maximum_ap_tolerance", 0.01)
+    )
+    rejects(
+        lambda raw: raw["outer_validation_replacement"]["complexity_tradeoff"].__setitem__(
+            "minimum_feature_reduction_fraction", 0.10
+        )
+    )
+    rejects(lambda raw: raw.__setitem__("checkpoint_each_fold", False))
 
     config_path.unlink()
     with pytest.raises(ValueError, match="Could not read"):

@@ -150,6 +150,9 @@ def generate_candidates(
     if len(stable) < settings.minimum_feature_count:
         stable = ranking[: settings.minimum_feature_count]
     definitions.append(("STABILITY_PRUNED", "fold_stability", stable))
+    # Deduplicate by the canonical feature list, not by the candidate-specific
+    # experiment hash.  Different strategies may intentionally produce the
+    # same subset and must not consume an extra evaluation slot.
     seen: set[str] = set()
     candidates: list[CandidateDefinition] = []
     for suffix, strategy, names in definitions:
@@ -158,10 +161,11 @@ def generate_candidates(
             raise FeatureSelectionError(
                 f"Candidate {track}_{suffix} violates minimum feature count."
             )
-        digest = feature_set_sha256(f"P11_{track}_{suffix}", unique_names)
-        if digest in seen:
+        canonical_digest = feature_list_sha256(unique_names)
+        if canonical_digest in seen:
             continue
-        seen.add(digest)
+        seen.add(canonical_digest)
+        digest = feature_set_sha256(f"P11_{track}_{suffix}", unique_names)
         candidates.append(
             CandidateDefinition(
                 candidate_id=f"P11_{track}_{suffix}",

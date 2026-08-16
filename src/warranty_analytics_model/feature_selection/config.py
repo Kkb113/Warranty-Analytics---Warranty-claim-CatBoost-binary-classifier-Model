@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -50,12 +51,12 @@ class FeatureSelectionSettings:
 
 
 def _number(raw: Any, label: str) -> float:
-    if isinstance(raw, bool):
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
         raise FeatureSelectionError(f"Phase 11 {label} must be numeric.")
-    try:
-        return float(raw)
-    except (TypeError, ValueError) as exc:
-        raise FeatureSelectionError(f"Phase 11 {label} must be numeric.") from exc
+    value = float(raw)
+    if not math.isfinite(value):
+        raise FeatureSelectionError(f"Phase 11 {label} must be finite.")
+    return value
 
 
 def _positive_int(raw: Any, label: str) -> int:
@@ -115,15 +116,55 @@ def load_feature_selection_settings(project_root: Path | None = None) -> Feature
     maximum = _positive_int(
         raw.get("maximum_candidate_subsets_per_track"), "maximum_candidate_subsets_per_track"
     )
-    if maximum > 8:
-        raise FeatureSelectionError("Phase 11 candidate subset cap cannot exceed 8.")
+    if minimum != 32:
+        raise FeatureSelectionError("Phase 11 minimum_feature_count is locked to 32.")
+    if maximum != 8:
+        raise FeatureSelectionError("Phase 11 candidate subset cap is locked to 8.")
+    expected_simpler = {
+        "enabled": True,
+        "maximum_ap_tolerance": 0.0025,
+        "maximum_min_ap_drop": 0.005,
+        "maximum_roc_auc_drop": 0.010,
+        "maximum_log_loss_increase": 0.010,
+    }
+    if simpler != expected_simpler:
+        raise FeatureSelectionError("Phase 11 simpler-candidate policy drifted from the lock.")
+    expected_outer = {
+        "ap_improvement_tolerance": 0.000001,
+        "complexity_tradeoff": {
+            "allowed": True,
+            "maximum_ap_drop": 0.0005,
+            "minimum_feature_reduction_fraction": 0.20,
+            "maximum_roc_auc_drop": 0.005,
+            "maximum_log_loss_increase": 0.003,
+        },
+    }
+    if outer != expected_outer:
+        raise FeatureSelectionError("Phase 11 outer replacement policy drifted from the lock.")
+    expected_compute = {
+        "high_performance_local": True,
+        "preferred_max_workers": 2,
+        "preferred_threads_per_worker": 10,
+        "preferred_single_fit_threads": 16,
+        "reserve_logical_threads": 2,
+    }
+    if compute != expected_compute:
+        raise FeatureSelectionError("Phase 11 compute policy drifted from the lock.")
+    if raw.get("checkpoint_each_fold") is not True:
+        raise FeatureSelectionError("Phase 11 checkpoint_each_fold must remain true.")
+    if raw.get("resume_supported") is not True:
+        raise FeatureSelectionError("Phase 11 resume_supported must remain true.")
+    if raw.get("output_directory") != "artifacts/feature_selection":
+        raise FeatureSelectionError("Phase 11 output_directory drifted from the lock.")
+    if raw.get("report_directory") != "reports/phase11_feature_selection":
+        raise FeatureSelectionError("Phase 11 report_directory drifted from the lock.")
     return FeatureSelectionSettings(
         tracks=tracks,
         primary_metric="mean_average_precision",
         candidate_fractions=fractions,
         minimum_feature_count=minimum,
         maximum_candidate_subsets_per_track=maximum,
-        simpler_enabled=bool(simpler.get("enabled")) and simpler.get("enabled") is True,
+        simpler_enabled=True,
         maximum_ap_tolerance=_number(simpler.get("maximum_ap_tolerance"), "maximum_ap_tolerance"),
         maximum_min_ap_drop=_number(simpler.get("maximum_min_ap_drop"), "maximum_min_ap_drop"),
         maximum_roc_auc_drop=_number(simpler.get("maximum_roc_auc_drop"), "maximum_roc_auc_drop"),
@@ -133,7 +174,7 @@ def load_feature_selection_settings(project_root: Path | None = None) -> Feature
         ap_improvement_tolerance=_number(
             outer.get("ap_improvement_tolerance"), "ap_improvement_tolerance"
         ),
-        complexity_allowed=complexity.get("allowed") is True,
+        complexity_allowed=True,
         complexity_maximum_ap_drop=_number(
             complexity.get("maximum_ap_drop"), "complexity.maximum_ap_drop"
         ),
@@ -156,10 +197,10 @@ def load_feature_selection_settings(project_root: Path | None = None) -> Feature
         preferred_single_fit_threads=_positive_int(
             compute.get("preferred_single_fit_threads"), "preferred_single_fit_threads"
         ),
-        reserve_logical_threads=int(compute.get("reserve_logical_threads", 0)),
-        high_performance_local=compute.get("high_performance_local") is True,
-        checkpoint_each_fold=raw.get("checkpoint_each_fold") is True,
-        resume_supported=raw.get("resume_supported") is True,
+        reserve_logical_threads=2,
+        high_performance_local=True,
+        checkpoint_each_fold=True,
+        resume_supported=True,
         output_directory=str(raw.get("output_directory")),
         report_directory=str(raw.get("report_directory")),
     )
