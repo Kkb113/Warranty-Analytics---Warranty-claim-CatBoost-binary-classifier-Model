@@ -564,6 +564,10 @@ def test_independent_validator_replays_fixture_bundle(
     }
     for name, payload in json_files.items():
         (artifact / name).write_text(json.dumps(payload), encoding="utf-8")
+    manifest["artifact_file_sha256"] = {
+        "overall_metrics.json": validation_module.sha256_file(artifact / "overall_metrics.json")
+    }
+    (artifact / "phase14_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     for name in (
         "overall_bootstrap.parquet",
         "temporal_metrics.parquet",
@@ -577,6 +581,7 @@ def test_independent_validator_replays_fixture_bundle(
     ):
         pd.DataFrame().to_parquet(artifact / name, index=False)
 
+    assert validation_module._independent_replay(SimpleNamespace(), artifact, {}, {}, {}) == []
     result = validation_module.validate_existing_phase14(artifact, project_root=tmp_path)
     assert result["valid"] is True
     assert result["hardening_status"] == "HARDENED_PASS"
