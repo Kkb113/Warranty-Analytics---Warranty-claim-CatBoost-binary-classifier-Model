@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 from ..catboost_optimization.provenance import canonical_json_sha256
-from .config import Phase14Settings
+from .config import Phase14Settings, configuration_sha256
 from .input import KEY, Phase14Resolved, train_oof_scores
 
 DOMAIN_COLUMNS: dict[str, tuple[str, ...]] = {
@@ -283,6 +283,7 @@ def build_analysis_plan(resolved: Phase14Resolved, settings: Phase14Settings) ->
         "constructed_feature_definition_count": int(seen),
         "validation_targets_accessed": False,
         "test_targets_accessed": False,
+        "configuration_sha256": configuration_sha256(),
         "created_at_utc": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
     }
     plan["slice_registry_sha256"] = canonical_json_sha256(registry)

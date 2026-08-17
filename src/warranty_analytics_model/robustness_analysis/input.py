@@ -395,6 +395,16 @@ def prepare_scorer(
         for component in resolved.components
     )
 
+    frozen_score_space = str(resolved.score_space)
+    if frozen_score_space.startswith("RAW_"):
+        use_calibrated_score = False
+    elif frozen_score_space.startswith("CALIBRATED_"):
+        use_calibrated_score = True
+    else:
+        raise Phase14InputError(
+            f"Unsupported frozen Phase 13 effective score space: {frozen_score_space}"
+        )
+
     def scorer(frame: pd.DataFrame) -> pd.DataFrame:
         result = frame[[KEY]].copy().reset_index(drop=True)
         component_scores: dict[str, np.ndarray] = {}
@@ -407,9 +417,10 @@ def prepare_scorer(
                 thread_count=threads,
             )
             calibrated = apply_calibrator(calibrator, raw)
-            effective = (
-                calibrated if component.calibration_method in {"SIGMOID", "ISOTONIC"} else raw
-            )
+            # Phase 13 freezes the *effective* score space after acceptance or
+            # fallback.  The selected calibrator method is not sufficient:
+            # rejected SIGMOID/ISOTONIC candidates must remain RAW here.
+            effective = calibrated if use_calibrated_score else raw
             component_scores[component.track] = effective
             result[f"{component.track}_raw_probability"] = raw
             result[f"{component.track}_effective_probability"] = effective
@@ -453,32 +464,47 @@ def train_oof_scores(resolved: Phase14Resolved) -> pd.DataFrame:
     if not path.is_file():
         raise Phase14InputError("Frozen TRAIN OOF score evidence is missing.")
     frame = pd.read_parquet(path)
-    if "effective_probability" in frame.columns:
+    # Older isolated fixtures do not carry a resolved score-space field; their
+    # persisted OOF table already represents the calibrated Phase 13 policy.
+    use_calibrated_score = str(
+        getattr(resolved, "score_space", "CALIBRATED_PROBABILITY")
+    ).startswith("CALIBRATED_")
+
+    # Compact Phase 14 planning fixtures may contain only the already-frozen
+    # effective OOF score.  There is no track/policy reconstruction to do in
+    # that shape, so preserve it verbatim.
+    if "track" not in frame.columns and "effective_probability" in frame.columns:
         result = frame[[KEY, "effective_probability"]].rename(
             columns={"effective_probability": "probability"}
         )
+        if result[KEY].duplicated().any():
+            raise Phase14InputError("TRAIN OOF scores contain duplicate claim keys.")
+        return result.sort_values(KEY, kind="mergesort").reset_index(drop=True)
+
+    def select_track(track: str) -> pd.DataFrame:
+        selected = frame.loc[frame["track"] == track].copy()
+        if "candidate_id" in selected.columns:
+            champion = selected.loc[selected["candidate_id"] == resolved.champion_id]
+            if not champion.empty:
+                selected = champion
+        preferred = "calibrated_probability" if use_calibrated_score else "raw_probability"
+        if preferred not in selected.columns:
+            preferred = "effective_probability"
+        if preferred not in selected.columns:
+            raise Phase14InputError(f"TRAIN OOF scores lack a frozen {preferred} column.")
+        return selected[[KEY, preferred]].rename(columns={preferred: "probability"})
+
+    if getattr(resolved, "champion_type", "SINGLE_TRACK") == "ENSEMBLE":
+        parts = []
+        for track in ("T1", "T3"):
+            selected = select_track(track)
+            parts.append(selected.rename(columns={"probability": track}))
+        merged = parts[0].merge(parts[1], on=KEY, validate="one_to_one")
+        weight = float(resolved.ensemble_t1_weight or 0.5)
+        result = merged[[KEY]].copy()
+        result["probability"] = weight * merged["T1"] + (1.0 - weight) * merged["T3"]
     else:
-        if resolved.champion_type == "ENSEMBLE":
-            parts = []
-            for track in ("T1", "T3"):
-                selected = frame.loc[
-                    frame["track"] == track, [KEY, "raw_probability", "calibrated_probability"]
-                ].copy()
-                selected["probability"] = selected["calibrated_probability"]
-                parts.append(selected[[KEY, "probability"]].rename(columns={"probability": track}))
-            merged = parts[0].merge(parts[1], on=KEY, validate="one_to_one")
-            weight = float(resolved.ensemble_t1_weight or 0.5)
-            result = merged[[KEY]].copy()
-            result["probability"] = weight * merged["T1"] + (1.0 - weight) * merged["T3"]
-        else:
-            track = resolved.components[0].track
-            selected = frame.loc[frame["track"] == track].copy()
-            column = (
-                "calibrated_probability"
-                if "calibrated_probability" in selected
-                else "raw_probability"
-            )
-            result = selected[[KEY, column]].rename(columns={column: "probability"})
+        result = select_track(resolved.components[0].track)
     if result[KEY].duplicated().any():
         raise Phase14InputError("TRAIN OOF scores contain duplicate claim keys.")
     return result.sort_values(KEY, kind="mergesort").reset_index(drop=True)

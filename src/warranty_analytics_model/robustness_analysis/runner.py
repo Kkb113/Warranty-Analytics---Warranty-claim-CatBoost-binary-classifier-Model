@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 
 from ..feature_mart.manifest import sha256_file, write_json
-from .bootstrap import stratified_bootstrap
+from .bootstrap import material_slice_bootstrap, stratified_bootstrap
 from .checkpoint import load_checkpoint, write_checkpoint
 from .config import (
     PHASE14_VERSION,
@@ -24,7 +24,7 @@ from .config import (
 )
 from .contract import phase14_contract_check
 from .drift import feature_drift, score_drift
-from .errors import error_cohorts, error_profile, high_confidence_errors
+from .errors import build_error_context, error_cohorts, error_profile, high_confidence_errors
 from .input import (
     KEY,
     TARGET,
@@ -41,7 +41,7 @@ from .metrics import overall_metrics
 from .planning import build_analysis_plan
 from .ranking import risk_decile_metrics, topk_lift
 from .readiness import readiness_gate
-from .slices import evaluate_slices
+from .slices import evaluate_slices, membership_for_definition
 from .temporal import temporal_metrics
 from .threshold_diagnostics import threshold_sensitivity
 
@@ -111,6 +111,27 @@ def _checkpoint_result_sha(outputs: list[Path]) -> str:
     return _canonical_sha(
         {path.name: sha256_file(path) for path in sorted(outputs) if path.is_file()}
     )
+
+
+def _plan_resume_bindings(plan: dict[str, Any]) -> dict[str, Any]:
+    """Return only the immutable plan/definition bindings used for resume.
+
+    ``analysis_plan.json`` also carries a creation timestamp for provenance.
+    Comparing the timestamped document made every legitimate resume look
+    stale.  Resume safety is instead determined by the stable plan and frozen
+    definition/configuration hashes.
+    """
+
+    return {
+        key: plan.get(key)
+        for key in (
+            "analysis_plan_sha256",
+            "slice_registry_sha256",
+            "slice_definition_sha256",
+            "temporal_definition_sha256",
+            "configuration_sha256",
+        )
+    }
 
 
 def _checkpoint_reusable(
@@ -238,6 +259,7 @@ def _phase14_freeze(
         "drift_policy": plan["drift_policy"],
         "threshold_diagnostic_policy": plan["threshold_diagnostic_policy"],
         "readiness_policy": plan["readiness_policy"],
+        "configuration_sha256": configuration_sha256(),
         "development_decisions_frozen": True,
         "model_changes_after_phase14_analysis": "prohibited",
         "validation_targets_accessed": False,
@@ -324,6 +346,7 @@ def _reports(report_root: Path, run_id: str, summary: dict[str, Any]) -> Path:
             {
                 "overall_metrics": summary.get("overall_metrics"),
                 "bootstrap": summary.get("bootstrap"),
+                "material_slice_bootstrap": summary.get("material_slice_bootstrap"),
             }
         ),
     )
@@ -403,7 +426,7 @@ def build_phase14(
     freeze_path = work_dir / "phase14_analysis_freeze.json"
     if resume and plan_path.is_file():
         existing_plan = json.loads(plan_path.read_text(encoding="utf-8"))
-        if _canonical_sha(existing_plan) != _canonical_sha(plan):
+        if _plan_resume_bindings(existing_plan) != _plan_resume_bindings(plan):
             raise Phase14InputError("Phase 14 analysis plan changed; stale resume is blocked.")
     write_json(plan_path, _json_safe(plan))
     write_json(
@@ -428,7 +451,15 @@ def build_phase14(
     freeze = _phase14_freeze(resolved, plan, settings)
     if resume and freeze_path.is_file():
         existing_freeze = json.loads(freeze_path.read_text(encoding="utf-8"))
-        if _canonical_sha(existing_freeze) != _canonical_sha(freeze):
+        existing_freeze_body = dict(existing_freeze)
+        existing_freeze_sha = existing_freeze_body.pop("phase14_analysis_freeze_sha256", None)
+        freeze_body = dict(freeze)
+        freeze_sha = freeze_body.pop("phase14_analysis_freeze_sha256", None)
+        if (
+            existing_freeze_sha != _canonical_sha(existing_freeze_body)
+            or freeze_sha != _canonical_sha(freeze_body)
+            or existing_freeze_sha != freeze_sha
+        ):
             raise Phase14InputError("Phase 14 analysis freeze changed; stale resume is blocked.")
     write_json(freeze_path, _json_safe(freeze))
 
@@ -557,6 +588,64 @@ def build_phase14(
         _write_parquet(slices, slice_path)
         write_json(slice_summary_path, _json_safe(slice_summary))
         _write_stage_checkpoint(slice_checkpoint, [slice_path, slice_summary_path], slice_bindings)
+    membership_path = work_dir / "slice_memberships.parquet"
+    if not (resume and membership_path.is_file()):
+        membership_rows: list[dict[str, Any]] = []
+        for definition in plan["slice_definitions"]:
+            membership = membership_for_definition(
+                definition,
+                validation_features,
+                scores=validation_scores["probability"],
+            )
+            for label in sorted(str(value) for value in membership.dropna().unique()):
+                mask = membership.astype(str) == label
+                membership_rows.extend(
+                    {
+                        "slice_id": str(definition["slice_id"]),
+                        "slice_label": label,
+                        KEY: int(key),
+                    }
+                    for key in validation_features.loc[mask, KEY].tolist()
+                )
+        _write_parquet(
+            pd.DataFrame(membership_rows, columns=["slice_id", "slice_label", KEY]), membership_path
+        )
+    material_bootstrap_path = work_dir / "material_slice_bootstrap.parquet"
+    material_bootstrap_summary_path = work_dir / "material_slice_bootstrap_summary.json"
+    material_bootstrap_checkpoint = checkpoint_dir / "material_slice_bootstrap.json"
+    material_bootstrap_bindings = _checkpoint_bindings(
+        resolved, plan, "material_slice_bootstrap", input_claim_sha256
+    )
+    if resume and _checkpoint_reusable(
+        material_bootstrap_checkpoint,
+        [material_bootstrap_path, material_bootstrap_summary_path],
+        material_bootstrap_bindings,
+    ):
+        material_bootstrap_summary = json.loads(
+            material_bootstrap_summary_path.read_text(encoding="utf-8")
+        )
+    else:
+        material_bootstrap_summary, material_bootstrap_rows = material_slice_bootstrap(
+            slices,
+            plan["slice_definitions"],
+            validation_features,
+            y_validation,
+            validation_scores["probability"],
+            resolved.threshold,
+            replicates=execution["material_slice_bootstrap_replicates"],
+            seed=settings.seed,
+            workers=execution["bootstrap_workers"],
+            confidence_level=settings.confidence_level,
+            min_positive=settings.min_slice_positives_bootstrap,
+            min_negative=settings.min_slice_negatives_ranking,
+        )
+        _write_parquet(pd.DataFrame(material_bootstrap_rows), material_bootstrap_path)
+        write_json(material_bootstrap_summary_path, _json_safe(material_bootstrap_summary))
+        _write_stage_checkpoint(
+            material_bootstrap_checkpoint,
+            [material_bootstrap_path, material_bootstrap_summary_path],
+            material_bootstrap_bindings,
+        )
     categorical = set(
         name
         for component in resolved.components
@@ -659,11 +748,11 @@ def build_phase14(
         _write_parquet(cohorts, cohorts_path)
         confidence = high_confidence_errors(cohorts)
         _write_parquet(confidence, confidence_path)
-        context = validation_features[[KEY, "claim__claim_date"]].copy()
-        context["feature_missingness_count"] = (
-            validation_features[list(resolved.feature_names)].isna().sum(axis=1)
-            if resolved.feature_names
-            else 0
+        context = build_error_context(
+            validation_features,
+            plan["slice_definitions"],
+            validation_scores["probability"],
+            resolved.feature_names,
         )
         profile = error_profile(cohorts, context)
         _write_parquet(profile, profile_path)
@@ -672,6 +761,8 @@ def build_phase14(
             "false_negatives": int((cohorts["error_type"] == "FALSE_NEGATIVE").sum()),
             "highest_confidence_fp": int((confidence["error_type"] == "FALSE_POSITIVE").sum()),
             "highest_confidence_fn": int((confidence["error_type"] == "FALSE_NEGATIVE").sum()),
+            "profile_rows": int(len(profile)),
+            "profile_contexts": int(profile["context_name"].nunique()) if not profile.empty else 0,
         }
         write_json(error_summary_path, _json_safe(error_summary))
         _write_stage_checkpoint(error_checkpoint, error_outputs, error_bindings)
@@ -686,13 +777,22 @@ def build_phase14(
         invariance = prediction_invariance(
             validation_features,
             scorer,
+            fresh_scorer=prepare_scorer(resolved, threads=execution["catboost_inference_threads"]),
             batch_sizes=settings.batch_sizes,
             seed=settings.seed,
             tolerance=settings.probability_tolerance,
         )
         write_json(invariance_path, _json_safe(invariance))
         _write_stage_checkpoint(invariance_checkpoint, [invariance_path], invariance_bindings)
-    leakage = leakage_recheck(list(resolved.feature_names))
+    lineage: dict[str, dict[str, Any]] = {}
+    phase12_inputs = getattr(getattr(resolved, "phase12_lock", None), "phase12_inputs", None)
+    lineage_sources = [phase12_inputs, getattr(phase12_inputs, "phase9_inputs", None)]
+    for source in lineage_sources:
+        for lineage_name in ("phase7_lineage", "phase8_lineage"):
+            value = getattr(source, lineage_name, None)
+            if isinstance(value, dict):
+                lineage.update(value)
+    leakage = leakage_recheck(list(resolved.feature_names), lineage=lineage)
     write_json(work_dir / "leakage_recheck.json", _json_safe(leakage))
     warnings = _warning_inventory(overall, temporal, slices, drift, score_shift, cohorts)
     hard_blockers: list[str] = []
@@ -724,6 +824,9 @@ def build_phase14(
                 **execution,
                 "phase13_inference_threads": execution["catboost_inference_threads"],
                 "bootstrap_replicates": execution["overall_bootstrap_replicates"],
+                "material_slice_bootstrap_replicates": execution[
+                    "material_slice_bootstrap_replicates"
+                ],
             }
         ),
     )
@@ -765,6 +868,7 @@ def build_phase14(
         "analysis_freeze_sha256": freeze["phase14_analysis_freeze_sha256"],
         "overall_validation_metrics": overall,
         "bootstrap_configuration": bootstrap_summary,
+        "material_slice_bootstrap_configuration": material_bootstrap_summary,
         "warning_inventory": warnings,
         "phase15_readiness_status": readiness["status"],
         "test_target_rows_loaded": 0,
@@ -801,6 +905,7 @@ def build_phase14(
         "hardening_status": hardening,
         "overall_metrics": overall,
         "bootstrap": bootstrap_summary,
+        "material_slice_bootstrap": material_bootstrap_summary,
         "temporal_summary": temporal_summary,
         "slice_summary": slice_summary,
         "drift_summary": drift_summary,

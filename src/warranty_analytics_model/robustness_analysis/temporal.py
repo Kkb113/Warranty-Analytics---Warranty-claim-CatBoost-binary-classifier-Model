@@ -56,16 +56,32 @@ def temporal_metrics(
         }
         row.update(metrics)
         if row.get("status") == "SUPPORTED" and row.get("average_precision") is not None:
+            slice_ap = float(row["average_precision"])
+            slice_roc = float(row.get("roc_auc") or 0.0)
+            slice_mcc = float(row.get("mcc") or 0.0)
             row["ap_lift_over_prevalence"] = (
-                float(row["average_precision"]) / float(row["prevalence"])
-                if float(row["prevalence"])
-                else None
+                slice_ap / float(row["prevalence"]) if float(row["prevalence"]) else None
             )
             row["ap_ratio_to_overall"] = (
-                float(row["average_precision"]) / float(overall["average_precision"])
+                slice_ap / float(overall["average_precision"])
                 if float(overall["average_precision"])
                 else None
             )
+            # These thresholds are frozen Phase 14 diagnostic rules.  They are
+            # deliberately evaluated only for supported periods; unsupported
+            # periods are classified below as LOW_SUPPORT and never influence
+            # degradation warnings.
+            if slice_ap <= float(row["prevalence"]) or slice_roc <= 0.50:
+                row["stability_classification"] = "SEVERE_DEGRADATION"
+            elif (
+                slice_ap < 0.75 * float(overall["average_precision"])
+                or slice_mcc < float(overall.get("mcc", 0.0)) - 0.10
+            ):
+                row["stability_classification"] = "MODERATE_DEGRADATION"
+            else:
+                row["stability_classification"] = "STABLE"
+        else:
+            row["stability_classification"] = "LOW_SUPPORT"
         rows.append(row)
     return (
         pd.DataFrame(rows)

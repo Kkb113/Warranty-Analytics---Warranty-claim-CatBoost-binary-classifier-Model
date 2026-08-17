@@ -25,6 +25,31 @@ def _psi(expected: np.ndarray, actual: np.ndarray, bins: np.ndarray | None = Non
     return float(np.sum((right - left) * np.log(right / left)))
 
 
+def _psi_from_probabilities(
+    expected: np.ndarray, actual: np.ndarray, *, epsilon: float = 1.0e-6
+) -> float:
+    """Compute PSI from already aligned category proportions.
+
+    Categorical values are not observations on a numeric axis.  Treating their
+    counts as histogram samples makes the PSI depend on the numeric magnitude
+    of the counts rather than on the category distribution.  Add the same
+    small mass to every aligned category, renormalize, and apply the canonical
+    PSI formula directly.
+    """
+
+    left = np.asarray(expected, dtype="float64").reshape(-1)
+    right = np.asarray(actual, dtype="float64").reshape(-1)
+    if len(left) == 0 or len(left) != len(right):
+        return 0.0
+    if not np.isfinite(left).all() or not np.isfinite(right).all():
+        raise ValueError("Categorical proportions must be finite.")
+    left = np.clip(left, 0.0, None) + float(epsilon)
+    right = np.clip(right, 0.0, None) + float(epsilon)
+    left /= left.sum()
+    right /= right.sum()
+    return float(np.sum((right - left) * np.log(right / left)))
+
+
 def _numeric_row(name: str, train: pd.Series, validation: pd.Series) -> dict[str, Any]:
     # Normalize booleans and numeric extension dtypes to float before passing
     # values to SciPy.  ``wasserstein_distance`` subtracts samples internally
@@ -83,14 +108,17 @@ def _categorical_row(name: str, train: pd.Series, validation: pd.Series) -> dict
     left_probs = left_counts / max(left_counts.sum(), 1.0)
     right_probs = right_counts / max(right_counts.sum(), 1.0)
     unseen = (~right.astype(str).isin(set(left.astype(str)))).mean()
+    psi = _psi_from_probabilities(left_probs, right_probs)
     return {
         "feature": name,
         "feature_type": "categorical",
         "train_missing_rate": float(left.eq("__MISSING__").mean()),
         "validation_missing_rate": float(right.eq("__MISSING__").mean()),
         "missing_rate_delta": float(right.eq("__MISSING__").mean() - left.eq("__MISSING__").mean()),
-        "psi": _psi(left_counts, right_counts, np.arange(len(categories) + 1, dtype="float64")),
-        "psi_classification": "LOW_SHIFT",
+        "psi": psi,
+        "psi_classification": (
+            "LOW_SHIFT" if psi < 0.10 else ("MODERATE_SHIFT" if psi < 0.25 else "HIGH_SHIFT")
+        ),
         "train_median": None,
         "validation_median": None,
         "median_shift": None,
@@ -98,7 +126,9 @@ def _categorical_row(name: str, train: pd.Series, validation: pd.Series) -> dict
         "validation_iqr": None,
         "wasserstein_distance": None,
         "unseen_validation_category_rate": float(unseen),
-        "js_divergence": float(jensenshannon(left_probs, right_probs, base=2.0)),
+        # SciPy returns Jensen-Shannon distance (the square root of the
+        # divergence), so keep the mathematically correct name in the artifact.
+        "js_distance": float(jensenshannon(left_probs, right_probs, base=2.0)),
     }
 
 

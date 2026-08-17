@@ -6,8 +6,10 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import numpy as np
+import pandas as pd
 
 from .metrics import overall_metrics
+from .slices import membership_for_definition
 
 
 def _bootstrap_one(
@@ -133,4 +135,104 @@ def stratified_bootstrap(
     return summary, rows
 
 
-__all__ = ["stratified_bootstrap"]
+def material_slice_bootstrap(
+    slices: pd.DataFrame,
+    definitions: list[dict[str, Any]],
+    frame: pd.DataFrame,
+    targets: Any,
+    probabilities: Any,
+    threshold: float,
+    *,
+    replicates: int,
+    seed: int,
+    workers: int,
+    confidence_level: float,
+    min_positive: int = 8,
+    min_negative: int = 20,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Bootstrap every supported/material frozen slice deterministically."""
+
+    y = np.asarray(targets, dtype="int8").reshape(-1)
+    p = np.asarray(probabilities, dtype="float64").reshape(-1)
+    if len(frame) != len(y) or len(y) != len(p):
+        raise ValueError("Material slice bootstrap inputs must be equally sized.")
+    definition_by_id = {str(item.get("slice_id")): item for item in definitions}
+    selected = slices.loc[
+        (slices.get("status", pd.Series(dtype=str)) == "SUPPORTED")
+        & (pd.to_numeric(slices.get("positive_count", 0), errors="coerce") >= int(min_positive))
+        & (pd.to_numeric(slices.get("negative_count", 0), errors="coerce") >= int(min_negative))
+    ].copy()
+    if not selected.empty:
+        selected = selected.sort_values(["slice_id", "slice_label"], kind="mergesort")
+    rows: list[dict[str, Any]] = []
+    summaries: dict[str, Any] = {}
+    seeds = np.random.SeedSequence(int(seed)).spawn(len(selected))
+    selected_records = list(selected.iterrows())
+
+    def run_one(
+        item: tuple[int, tuple[Any, pd.Series]],
+    ) -> tuple[str, dict[str, Any], list[dict[str, Any]]]:
+        index, (_, slice_row) = item
+        slice_id = str(slice_row["slice_id"])
+        slice_label = str(slice_row["slice_label"])
+        definition = definition_by_id.get(slice_id)
+        if definition is None:
+            raise ValueError(f"Material slice definition is missing: {slice_id}")
+        membership = membership_for_definition(
+            definition, frame, scores=pd.Series(p, index=frame.index)
+        ).astype(str)
+        mask = membership.to_numpy() == slice_label
+        child_seed = int(seeds[index].generate_state(1, dtype=np.uint64)[0])
+        summary, replicate_rows = stratified_bootstrap(
+            y[mask],
+            p[mask],
+            threshold,
+            replicates=int(replicates),
+            seed=child_seed,
+            # Parallelism is applied across slices here; nested worker pools
+            # would oversubscribe the bounded Phase 14 CPU budget.
+            workers=1,
+            confidence_level=confidence_level,
+        )
+        key = f"{slice_id}::{slice_label}"
+        summary_payload = {
+            "slice_id": slice_id,
+            "slice_label": slice_label,
+            "row_count": int(mask.sum()),
+            "positive_count": int(y[mask].sum()),
+            "negative_count": int((y[mask] == 0).sum()),
+            "seed": child_seed,
+            "summary": summary,
+        }
+        return key, summary_payload, replicate_rows
+
+    if int(workers) > 1 and selected_records:
+        with ThreadPoolExecutor(max_workers=min(int(workers), len(selected_records))) as executor:
+            results = list(executor.map(run_one, enumerate(selected_records)))
+    else:
+        results = [run_one(item) for item in enumerate(selected_records)]
+    for key, summary_payload, replicate_rows in results:
+        summaries[key] = summary_payload
+        rows.extend(
+            {
+                "slice_id": summary_payload["slice_id"],
+                "slice_label": summary_payload["slice_label"],
+                **row,
+            }
+            for row in replicate_rows
+        )
+    return {
+        "replicate_count": int(replicates),
+        "eligible_slice_count": int(len(selected)),
+        "failed_replicate_count": int(
+            sum(
+                int(item["summary"].get("failed_replicate_count", 0)) for item in summaries.values()
+            )
+        ),
+        "slices": summaries,
+        "method": "STRATIFIED_PERCENTILE",
+        "seed": int(seed),
+    }, rows
+
+
+__all__ = ["material_slice_bootstrap", "stratified_bootstrap"]

@@ -15,7 +15,10 @@ from warranty_analytics_model.baseline_model.models import FeatureSetSpec
 from warranty_analytics_model.robustness_analysis import input as input_module
 from warranty_analytics_model.robustness_analysis import runner as runner_module
 from warranty_analytics_model.robustness_analysis import validation as validation_module
-from warranty_analytics_model.robustness_analysis.bootstrap import stratified_bootstrap
+from warranty_analytics_model.robustness_analysis.bootstrap import (
+    material_slice_bootstrap,
+    stratified_bootstrap,
+)
 from warranty_analytics_model.robustness_analysis.checkpoint import (
     checkpoint_sha,
     load_checkpoint,
@@ -29,6 +32,7 @@ from warranty_analytics_model.robustness_analysis.config import (
 from warranty_analytics_model.robustness_analysis.contract import phase14_contract_check
 from warranty_analytics_model.robustness_analysis.drift import feature_drift, score_drift
 from warranty_analytics_model.robustness_analysis.errors import (
+    build_error_context,
     error_cohorts,
     error_profile,
     high_confidence_errors,
@@ -142,6 +146,147 @@ def test_drift_ranking_errors_and_invariance() -> None:
     )
     assert invariant["valid"] is True
     assert invariant["serialization_max_probability_delta"] == 0.0
+    assert invariant["serialization_reload_verified"] is False
+
+
+def test_phase14_frozen_diagnostics_order_and_classification() -> None:
+    frame = _frame()
+    y = pd.Series([0, 0, 0, 0, 1, 1, 0, 1, 0, 0, 0, 1])
+    probabilities = pd.Series(
+        [0.90, 0.80, 0.70, 0.60, 0.50, 0.40, 0.30, 0.20, 0.10, 0.09, 0.08, 0.07]
+    )
+    overall = overall_metrics(y, probabilities, 0.5)
+    temporal = temporal_metrics(frame, y, probabilities, 0.5, _settings(), overall=overall)
+    assert set(temporal["stability_classification"]) <= {
+        "LOW_SUPPORT",
+        "STABLE",
+        "MODERATE_DEGRADATION",
+        "SEVERE_DEGRADATION",
+    }
+    oof = pd.DataFrame({KEY: frame[KEY], "probability": probabilities})
+    deciles = risk_decile_metrics(oof, frame, y, probabilities)
+    assert deciles.iloc[0]["decile"] == "D10"
+    assert deciles.iloc[0]["cumulative_recall"] == deciles.iloc[0]["recall_contribution"]
+    train = pd.DataFrame({"f_cat": ["A"] * 10})
+    shifted = pd.DataFrame({"f_cat": ["B"] * 10})
+    categorical = feature_drift(train, shifted, ["f_cat"], {"f_cat"}).iloc[0]
+    assert categorical["psi"] > 0.25
+    assert categorical["psi_classification"] == "HIGH_SHIFT"
+    assert "js_distance" in categorical
+
+
+def test_material_slice_bootstrap_and_error_context() -> None:
+    frame = _frame().copy()
+    y = pd.Series([0, 0, 0, 1, 1, 1, 0, 0, 0, 1, 0, 0])
+    probabilities = pd.Series(np.linspace(0.01, 0.9, len(frame)))
+    definitions = [
+        {
+            "slice_id": "cat",
+            "kind": "categorical",
+            "column": "f_cat",
+            "categories": ["A", "B", "__MISSING__", "__OTHER__"],
+        }
+    ]
+    slices, _ = evaluate_slices(
+        definitions,
+        frame,
+        y,
+        probabilities,
+        0.5,
+        overall_metrics(y, probabilities, 0.5),
+        _settings(),
+    )
+    slices["status"] = "SUPPORTED"
+    summary, rows = material_slice_bootstrap(
+        slices,
+        definitions,
+        frame,
+        y,
+        probabilities,
+        0.5,
+        replicates=3,
+        seed=7,
+        workers=1,
+        confidence_level=0.95,
+        min_positive=1,
+        min_negative=1,
+    )
+    assert summary["eligible_slice_count"] >= 1
+    assert len(rows) == summary["eligible_slice_count"] * 3
+    context = build_error_context(frame, definitions, probabilities, ("f_num", "f_cat"))
+    profile = error_profile(error_cohorts(frame[KEY], y, probabilities, 0.5), context)
+    assert {"aggregate", "numeric_summary", "categorical_cohort"}.issubset(
+        set(profile["profile_kind"])
+    )
+
+
+def test_resume_plan_binding_ignores_creation_time() -> None:
+    plan = {
+        "analysis_plan_sha256": "plan",
+        "slice_registry_sha256": "registry",
+        "slice_definition_sha256": "definitions",
+        "temporal_definition_sha256": "temporal",
+        "configuration_sha256": "configuration",
+        "created_at_utc": "2024-01-01T00:00:00Z",
+    }
+    changed = {**plan, "created_at_utc": "2025-01-01T00:00:00Z"}
+    assert runner_module._plan_resume_bindings(plan) == runner_module._plan_resume_bindings(changed)
+    assert runner_module._plan_resume_bindings(
+        {**changed, "slice_definition_sha256": "stale"}
+    ) != runner_module._plan_resume_bindings(plan)
+
+
+def test_train_oof_obeys_frozen_raw_score_space(tmp_path: Path) -> None:
+    pd.DataFrame(
+        {
+            KEY: [1, 2],
+            "track": ["T1", "T1"],
+            "candidate_id": ["C1", "C1"],
+            "raw_probability": [0.10, 0.20],
+            "calibrated_probability": [0.60, 0.70],
+        }
+    ).to_parquet(tmp_path / "selected_calibrated_oof_predictions.parquet", index=False)
+    resolved = SimpleNamespace(
+        phase13_dir=tmp_path,
+        phase13_manifest={"phase12_run_id": "P12"},
+        champion_type="SINGLE_TRACK",
+        champion_id="C1",
+        score_space="RAW_UNCALIBRATED_PROBABILITY",
+        components=(SimpleNamespace(track="T1"),),
+    )
+    assert input_module.train_oof_scores(resolved)["probability"].tolist() == [0.10, 0.20]
+
+
+def test_train_oof_obeys_calibrated_single_and_ensemble_spaces(tmp_path: Path) -> None:
+    frame = pd.DataFrame(
+        {
+            KEY: [1, 2, 1, 2],
+            "track": ["T1", "T1", "T3", "T3"],
+            "candidate_id": ["C1"] * 4,
+            "raw_probability": [0.10, 0.20, 0.30, 0.40],
+            "calibrated_probability": [0.60, 0.70, 0.80, 0.90],
+        }
+    )
+    frame.to_parquet(tmp_path / "selected_calibrated_oof_predictions.parquet", index=False)
+    single = SimpleNamespace(
+        phase13_dir=tmp_path,
+        phase13_manifest={"phase12_run_id": "P12"},
+        champion_type="SINGLE_TRACK",
+        champion_id="C1",
+        score_space="CALIBRATED_PROBABILITY",
+        components=(SimpleNamespace(track="T1"),),
+    )
+    assert input_module.train_oof_scores(single)["probability"].tolist() == [0.60, 0.70]
+    ensemble = SimpleNamespace(
+        phase13_dir=tmp_path,
+        phase13_manifest={"phase12_run_id": "P12"},
+        champion_type="ENSEMBLE",
+        champion_id="ENSEMBLE",
+        score_space="CALIBRATED_ENSEMBLE_PROBABILITY",
+        ensemble_t1_weight=0.25,
+        components=(SimpleNamespace(track="T1"), SimpleNamespace(track="T3")),
+    )
+    assert np.allclose(input_module.train_oof_scores(ensemble)["probability"], [0.75, 0.85])
 
 
 def test_plan_slices_temporal_and_leakage(tmp_path: Path) -> None:
@@ -415,8 +560,11 @@ def test_runner_checkpoint_binding_reuses_and_rejects_stale_results(tmp_path: Pa
 def test_independent_validator_replays_published_bundle(monkeypatch: pytest.MonkeyPatch) -> None:
     """The validator checks the immutable local bundle independently of runner status."""
 
-    artifact = Path("artifacts/robustness_analysis/20260817T_PHASE14_FINAL").resolve()
-    if not artifact.is_dir():
+    candidates = sorted(Path("artifacts/robustness_analysis").glob("202*"))
+    artifact = candidates[-1].resolve() if candidates else Path("missing")
+    if not artifact.is_dir() or any(
+        not (artifact / name).is_file() for name in validation_module.REQUIRED_ARTIFACTS
+    ):
         pytest.skip("local Phase 14 execution artifact is unavailable")
     fake = SimpleNamespace(
         phase13_manifest={"run_id": "20260817T_PHASE13_FINAL2"},
@@ -490,14 +638,36 @@ def test_independent_validator_replays_fixture_bundle(
     )
 
     plan = {
+        "phase": 14,
+        "feature_names": [],
+        "risk_score_train_oof_rows": 0,
+        "temporal_sort": [],
+        "support_policy": {},
+        "bootstrap_policy": {},
+        "drift_policy": {},
+        "threshold_diagnostic_policy": {},
+        "readiness_policy": {},
+        "constructed_feature_definition_count": 0,
+        "validation_targets_accessed": False,
+        "test_targets_accessed": False,
+        "configuration_sha256": configuration_sha256(),
+        "created_at_utc": "2024-01-01T00:00:00Z",
         "analysis_plan_sha256": "plan",
         "slice_registry": [],
         "slice_definitions": [],
         "slice_registry_sha256": validation_module._sha([]),
         "slice_definition_sha256": validation_module._sha([]),
     }
+    plan["analysis_plan_sha256"] = validation_module._sha(
+        {
+            key: value
+            for key, value in plan.items()
+            if not key.endswith("_sha256") and key != "created_at_utc"
+        }
+    )
+    plan["temporal_definition_sha256"] = validation_module._sha([])
     freeze_body = {
-        "analysis_plan_sha256": "plan",
+        "analysis_plan_sha256": plan["analysis_plan_sha256"],
         "validation_targets_accessed": False,
         "test_targets_accessed": False,
     }
@@ -517,6 +687,7 @@ def test_independent_validator_replays_fixture_bundle(
     invariant = prediction_invariance(
         validation_features,
         lambda frame: frame[[KEY]].assign(probability=frame["score"].to_numpy()),
+        fresh_scorer=lambda frame: frame[[KEY]].assign(probability=frame["score"].to_numpy()),
     )
     readiness = readiness_gate(overall, [], test_audit=audit)
     manifest = {
@@ -533,6 +704,7 @@ def test_independent_validator_replays_fixture_bundle(
         "frozen_score_space": "RAW_UNCALIBRATED_PROBABILITY",
         "frozen_threshold": 0.5,
         "warning_inventory": [],
+        "git_commit_sha": "fixture-commit",
         "artifact_file_sha256": {},
     }
     json_files = {
@@ -561,6 +733,8 @@ def test_independent_validator_replays_fixture_bundle(
         "compute_manifest.json": {},
         "validation.json": {},
         "phase14_manifest.json": manifest,
+        "overall_bootstrap_summary.json": {"replicate_count": 0},
+        "material_slice_bootstrap_summary.json": {"eligible_slice_count": 0},
     }
     for name, payload in json_files.items():
         (artifact / name).write_text(json.dumps(payload), encoding="utf-8")
@@ -578,6 +752,8 @@ def test_independent_validator_replays_fixture_bundle(
         "error_cohorts.parquet",
         "high_confidence_errors.parquet",
         "error_profile.parquet",
+        "slice_memberships.parquet",
+        "material_slice_bootstrap.parquet",
     ):
         pd.DataFrame().to_parquet(artifact / name, index=False)
 
@@ -608,6 +784,259 @@ def test_validator_replay_helpers_cover_scalar_and_ensemble_paths(tmp_path: Path
     )
     result = validation_module._accepted_probabilities(resolved)
     assert np.allclose(result["expected_probability"].to_numpy(), [0.175, 0.375])
+
+
+def test_independent_validator_replays_full_diagnostic_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Exercise the standalone validator's full scientific replay orchestration."""
+
+    parent = tmp_path / "phase13"
+    parent.mkdir()
+    pd.DataFrame(
+        {
+            KEY: [1, 2],
+            "track": ["T1", "T1"],
+            "candidate_id": ["C1", "C1"],
+            "effective_probability": [0.2, 0.8],
+        }
+    ).to_parquet(parent / "validation_predictions.parquet", index=False)
+    features = pd.DataFrame({KEY: [1, 2], "score": [0.2, 0.8]})
+    targets = pd.DataFrame({KEY: [1, 2], TARGET: [0, 1]})
+    audit = {
+        "test_target_rows_loaded": 0,
+        "test_predictions_created": 0,
+        "test_metrics_computed": False,
+    }
+
+    def scorer(frame: pd.DataFrame) -> pd.DataFrame:
+        return frame[[KEY]].assign(probability=frame["score"].to_numpy())
+
+    fake = SimpleNamespace(
+        root=Path.cwd(),
+        phase13_dir=parent,
+        validation_features=features,
+        train_features=features.copy(),
+        components=(
+            SimpleNamespace(
+                track="T1",
+                feature_set=SimpleNamespace(categorical_features=(), text_features=()),
+            ),
+        ),
+        feature_names=("score",),
+        champion_type="SINGLE_TRACK",
+        champion_id="C1",
+        threshold=0.5,
+        score_space="RAW_UNCALIBRATED_PROBABILITY",
+        load_validation_targets=lambda: (targets, audit),
+    )
+    persisted_overall = overall_metrics(targets[TARGET], features["score"], 0.5)
+    persisted_invariance = {
+        "valid": True,
+        "serialization_reload_verified": True,
+        "serialization_max_probability_delta": 0.0,
+        "row_order_max_probability_delta": 0.0,
+        "batch_max_probability_delta": 0.0,
+    }
+    plan = {
+        "slice_definitions": [],
+    }
+
+    monkeypatch.setattr(validation_module, "prepare_scorer", lambda *args, **kwargs: scorer)
+    monkeypatch.setattr(
+        validation_module,
+        "prediction_invariance",
+        lambda *args, **kwargs: dict(persisted_invariance),
+    )
+    monkeypatch.setattr(
+        validation_module,
+        "load_robustness_settings",
+        lambda *args, **kwargs: SimpleNamespace(
+            overall_replicates=2,
+            material_slice_replicates=2,
+            seed=7,
+            confidence_level=0.95,
+            min_slice_positives_bootstrap=1,
+            min_slice_negatives_ranking=1,
+            top_k=(0.5,),
+            threshold_multipliers=(1.0,),
+        ),
+    )
+    monkeypatch.setattr(
+        validation_module,
+        "temporal_metrics",
+        lambda *args, **kwargs: pd.DataFrame({"stability_classification": ["STABLE"]}),
+    )
+    monkeypatch.setattr(
+        validation_module,
+        "evaluate_slices",
+        lambda *args, **kwargs: (pd.DataFrame({"status": ["SUPPORTED"]}), {}),
+    )
+    monkeypatch.setattr(
+        validation_module,
+        "feature_drift",
+        lambda *args, **kwargs: pd.DataFrame({"psi": [0.0]}),
+    )
+    monkeypatch.setattr(
+        validation_module,
+        "train_oof_scores",
+        lambda *args, **kwargs: pd.DataFrame({KEY: [1, 2], "probability": [0.2, 0.8]}),
+    )
+    monkeypatch.setattr(
+        validation_module,
+        "score_drift",
+        lambda *args, **kwargs: ({"mean": 0.5}, {"classification": "LOW_SHIFT"}),
+    )
+    monkeypatch.setattr(
+        validation_module,
+        "risk_decile_metrics",
+        lambda *args, **kwargs: pd.DataFrame({"decile": ["D10"]}),
+    )
+    monkeypatch.setattr(validation_module, "topk_lift", lambda *args, **kwargs: {"top_k": 0.5})
+    monkeypatch.setattr(
+        validation_module,
+        "threshold_sensitivity",
+        lambda *args, **kwargs: pd.DataFrame({"threshold": [0.5]}),
+    )
+    empty_errors = pd.DataFrame({"error_type": pd.Series(dtype=str)})
+    monkeypatch.setattr(validation_module, "error_cohorts", lambda *args, **kwargs: empty_errors)
+    monkeypatch.setattr(
+        validation_module, "high_confidence_errors", lambda *args, **kwargs: empty_errors
+    )
+    monkeypatch.setattr(
+        validation_module, "build_error_context", lambda *args, **kwargs: pd.DataFrame()
+    )
+    monkeypatch.setattr(validation_module, "error_profile", lambda *args, **kwargs: pd.DataFrame())
+    monkeypatch.setattr(
+        validation_module,
+        "stratified_bootstrap",
+        lambda *args, **kwargs: ({"replicate_count": 2}, []),
+    )
+    monkeypatch.setattr(
+        validation_module,
+        "material_slice_bootstrap",
+        lambda *args, **kwargs: ({"eligible_slice_count": 0}, []),
+    )
+    monkeypatch.setattr(
+        validation_module,
+        "leakage_recheck",
+        lambda *args, **kwargs: {"valid": True, "prohibited_feature_count": 0},
+    )
+    monkeypatch.setattr(validation_module, "_warning_inventory", lambda *args, **kwargs: [])
+    monkeypatch.setattr(validation_module, "_compare_frames", lambda *args, **kwargs: [])
+    monkeypatch.setattr(validation_module, "_compare_nested", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        validation_module, "readiness_gate", lambda *args, **kwargs: {"status": "READY"}
+    )
+
+    for name in (
+        "temporal_metrics.parquet",
+        "slice_metrics.parquet",
+        "slice_memberships.parquet",
+        "feature_drift.parquet",
+        "risk_decile_metrics.parquet",
+        "threshold_sensitivity.parquet",
+        "error_cohorts.parquet",
+        "high_confidence_errors.parquet",
+        "error_profile.parquet",
+        "overall_bootstrap.parquet",
+        "material_slice_bootstrap.parquet",
+    ):
+        pd.DataFrame().to_parquet(tmp_path / name, index=False)
+    for name, payload in {
+        "score_distribution.json": {},
+        "score_drift.json": {},
+        "topk_lift.json": {},
+        "overall_bootstrap_summary.json": {},
+        "material_slice_bootstrap_summary.json": {},
+        "phase14_manifest.json": {"warning_inventory": []},
+        "leakage_recheck.json": {"valid": True, "prohibited_feature_count": 0},
+        "phase15_readiness.json": {"status": "READY"},
+    }.items():
+        (tmp_path / name).write_text(json.dumps(payload), encoding="utf-8")
+
+    errors = validation_module._independent_replay(
+        fake,
+        tmp_path,
+        {"row_count": 2, "maximum_probability_delta": 0.0},
+        persisted_overall,
+        persisted_invariance,
+        plan,
+    )
+    assert errors == []
+
+
+def test_validator_comparison_membership_and_warning_helpers(tmp_path: Path) -> None:
+    invalid_json = tmp_path / "invalid.json"
+    invalid_json.write_text("[]", encoding="utf-8")
+    with pytest.raises(ValueError):
+        validation_module._read(invalid_json)
+    assert validation_module._sha({"b": 2, "a": 1}) == validation_module._sha({"a": 1, "b": 2})
+
+    assert validation_module._compare_nested({"a": 1}, {"a": 1}) == []
+    assert validation_module._compare_nested({"a": 1}, {"b": 1})
+    assert validation_module._compare_nested({"a": 1}, [])
+    assert validation_module._compare_nested([1], [1, 2])
+    assert validation_module._compare_nested([1], [2])
+    assert (
+        validation_module._compare_frames(
+            pd.DataFrame({"a": [1]}), pd.DataFrame({"a": [1]}), "equal"
+        )
+        == []
+    )
+    assert validation_module._compare_frames(
+        pd.DataFrame({"a": [1]}), pd.DataFrame({"b": [1]}), "columns"
+    )
+    assert validation_module._compare_frames(
+        pd.DataFrame({"a": [1]}), pd.DataFrame({"a": [2]}), "values"
+    )
+
+    frame = _frame().iloc[:3].copy()
+    memberships = validation_module._slice_membership_frame(
+        [
+            {
+                "slice_id": "cat",
+                "kind": "categorical",
+                "column": "f_cat",
+                "categories": ["A"],
+            }
+        ],
+        frame,
+        pd.Series([0.1, 0.2, 0.3]),
+    )
+    assert set(memberships["slice_label"]) == {"A", "__OTHER__"}
+
+    warnings = validation_module._warning_inventory(
+        {"positive_count": 1},
+        pd.DataFrame({"stability_classification": ["MODERATE_DEGRADATION", "SEVERE_DEGRADATION"]}),
+        pd.DataFrame(
+            {
+                "status": ["LOW_SUPPORT"],
+                "stability_classification": ["SEVERE_DEGRADATION"],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "psi": [0.3],
+                "missingness_classification": ["MATERIAL_MISSINGNESS_SHIFT"],
+            }
+        ),
+        {"classification": "SCORE_DISTRIBUTION_SHIFT"},
+        pd.DataFrame({"error_type": ["FALSE_NEGATIVE"]}),
+    )
+    assert {
+        "SYNTHETIC_POC",
+        "BUSINESS_TARGET_UNCONFIRMED",
+        "SMALL_VALIDATION_POSITIVE_COUNT",
+        "TEMPORAL_DEGRADATION",
+        "SEVERE_TEMPORAL_DEGRADATION",
+        "LOW_SUPPORT_SLICE",
+        "SEVERE_SLICE_PERFORMANCE_DEGRADATION",
+        "HIGH_FEATURE_DRIFT",
+        "MATERIAL_MISSINGNESS_SHIFT",
+        "SCORE_DISTRIBUTION_SHIFT",
+        "HIGH_FALSE_NEGATIVE_CONCENTRATION",
+    }.issubset(warnings)
 
 
 def test_runner_branches_plan_check_oof_and_aggregate_reports(

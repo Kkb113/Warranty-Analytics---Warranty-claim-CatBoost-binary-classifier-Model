@@ -19,13 +19,15 @@ def risk_decile_metrics(
     values = np.asarray(train_oof["probability"], dtype="float64")
     edges = np.unique(np.quantile(values, np.linspace(0, 1, 11))) if len(values) else np.array([])
     if len(edges) < 2:
-        labels = pd.Series("D1", index=validation.index)
+        decile_labels = ["D1"]
+        labels = pd.Series("D1", index=validation.index, dtype="string")
     else:
         bins = np.concatenate(([-np.inf], edges[1:-1], [np.inf]))
+        decile_labels = [f"D{i}" for i in range(1, len(bins))]
         labels = pd.cut(
             np.asarray(probabilities, dtype="float64"),
             bins=bins,
-            labels=[f"D{i}" for i in range(1, len(bins))],
+            labels=decile_labels,
             include_lowest=True,
         ).astype("string")
     frame = pd.DataFrame(
@@ -38,7 +40,11 @@ def risk_decile_metrics(
     rows: list[dict[str, Any]] = []
     total_positive = int(frame["target"].sum())
     cumulative = 0
-    for decile, group in frame.groupby("decile", sort=False, observed=False):
+    # D10 is the highest-risk bucket because the frozen TRAIN-OOF quantile
+    # edges are ascending.  Operational cumulative capture must therefore
+    # start at D10 and walk down to D1, not follow input-row order.
+    for decile in sorted(decile_labels, key=lambda value: int(str(value)[1:]), reverse=True):
+        group = frame.loc[frame["decile"].astype(str) == decile]
         positives = int(group["target"].sum())
         cumulative += positives
         prevalence = float(group["target"].mean()) if len(group) else 0.0
