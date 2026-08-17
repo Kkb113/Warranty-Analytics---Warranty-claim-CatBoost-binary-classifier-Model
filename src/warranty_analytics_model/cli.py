@@ -480,6 +480,52 @@ def build_parser() -> argparse.ArgumentParser:
         "--phase13-dir", type=Path, required=True, help="Phase 13 run directory."
     )
     phase13_validate.add_argument("--json", action="store_true", help="Print validation JSON.")
+    subparsers.add_parser(
+        "phase14-contract-check",
+        help="Validate the Phase 14 robustness and error-analysis contract offline.",
+    ).add_argument("--json", action="store_true", help="Print machine-readable JSON.")
+    phase14_plan = subparsers.add_parser(
+        "phase14-plan-check",
+        help="Build the target-independent Phase 14 analysis plan without loading validation labels.",
+    )
+    phase14_plan.add_argument(
+        "--phase13-dir", type=Path, required=True, help="Accepted Phase 13 run directory."
+    )
+    phase14_plan.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
+    phase14_analyze = subparsers.add_parser(
+        "phase14-analyze",
+        help="Run frozen Phase 13 robustness, stability, drift, ranking, and error diagnostics.",
+    )
+    phase14_analyze.add_argument(
+        "--phase13-dir", type=Path, required=True, help="Accepted Phase 13 run directory."
+    )
+    phase14_analyze.add_argument("--output-dir", type=Path, help="Phase 14 artifact root override.")
+    phase14_analyze.add_argument("--report-dir", type=Path, help="Phase 14 report root override.")
+    phase14_analyze.add_argument("--run-id", help="Explicit immutable Phase 14 run identifier.")
+    phase14_analyze.add_argument(
+        "--resume", action="store_true", help="Resume an unpublished work bundle."
+    )
+    phase14_analyze.add_argument(
+        "--max-workers", type=int, help="Bounded bootstrap workers override."
+    )
+    phase14_analyze.add_argument(
+        "--bootstrap-replicates",
+        type=int,
+        help="Bootstrap replicates; may only increase the contract minimum.",
+    )
+    phase14_analyze.add_argument(
+        "--catboost-inference-threads", type=int, help="CatBoost inference threads override."
+    )
+    phase14_analyze.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
+    phase14_validate = subparsers.add_parser(
+        "phase14-validate", help="Independently validate a completed Phase 14 run."
+    )
+    phase14_validate.add_argument(
+        "--phase14-dir", type=Path, required=True, help="Phase 14 run directory."
+    )
+    phase14_validate.add_argument(
+        "--json", action="store_true", help="Print machine-readable JSON."
+    )
     return parser
 
 
@@ -1743,6 +1789,97 @@ def _run_phase13_validate(arguments: argparse.Namespace) -> int:
     return 0 if result.get("valid") else 1
 
 
+def _run_phase14_contract_check(arguments: argparse.Namespace | None = None) -> int:
+    try:
+        from .robustness_analysis.contract import phase14_contract_check
+
+        result = phase14_contract_check()
+    except Exception as exc:
+        print(f"Phase 14 contract check BLOCKED: {exc}", file=sys.stderr)
+        return 1
+    if arguments is not None and arguments.json:
+        print(json.dumps(result, sort_keys=True, default=str))
+    else:
+        print(f"Phase 14 contract check: {result.get('status', 'BLOCKED')}")
+        print(f"Contract version: {result.get('contract_version', '-')}")
+        print(f"Contract SHA-256: {result.get('contract_sha256', '-')}")
+        for error in result.get("errors", []):
+            print(f"ERROR: {error}")
+        for warning in result.get("warnings", []):
+            print(f"WARNING: {warning}")
+    return 0 if result.get("valid") else 1
+
+
+def _run_phase14_plan_check(arguments: argparse.Namespace) -> int:
+    try:
+        from .robustness_analysis.runner import phase14_plan_check
+
+        result = phase14_plan_check(arguments.phase13_dir)
+    except Exception as exc:
+        print(f"Phase 14 plan check BLOCKED: {exc}", file=sys.stderr)
+        return 1
+    if arguments.json:
+        print(json.dumps(result, sort_keys=True, default=str))
+    else:
+        print(f"Phase 14 plan check: {result.get('status', 'BLOCKED')}")
+        print(f"Phase 13 run: {result.get('phase13_run_id', '-')}")
+        print(f"Development champion: {result.get('phase13_development_champion', '-')}")
+        print(f"Validation targets accessed: {result.get('validation_targets_accessed', False)}")
+        for error in result.get("errors", []):
+            print(f"ERROR: {error}")
+        for warning in result.get("warnings", []):
+            print(f"WARNING: {warning}")
+    return 0 if result.get("valid") else 1
+
+
+def _run_phase14_analyze(arguments: argparse.Namespace) -> int:
+    try:
+        from .robustness_analysis.runner import build_phase14
+
+        result = build_phase14(
+            arguments.phase13_dir,
+            output_dir=arguments.output_dir,
+            report_dir=arguments.report_dir,
+            run_id=arguments.run_id,
+            resume=arguments.resume,
+            max_workers=arguments.max_workers,
+            bootstrap_replicates=arguments.bootstrap_replicates,
+            catboost_inference_threads=arguments.catboost_inference_threads,
+        )
+    except Exception as exc:
+        print(f"Phase 14 analysis BLOCKED: {exc}", file=sys.stderr)
+        return 1
+    if arguments.json:
+        print(json.dumps(result, sort_keys=True, default=str))
+    else:
+        print(f"Phase 14 status: {result.get('hardening_status', 'BLOCKED')}")
+        print(f"Run directory: {result.get('run_directory', '-')}")
+        print(f"Phase 15 readiness: {result.get('phase15_readiness', {}).get('status', '-')}")
+        print(f"Development champion: {result.get('phase13_development_champion', '-')}")
+        for warning in result.get("warnings", []):
+            print(f"WARNING: {warning}")
+    return 0 if result.get("validation", {}).get("valid") else 1
+
+
+def _run_phase14_validate(arguments: argparse.Namespace) -> int:
+    try:
+        from .robustness_analysis.validation import validate_existing_phase14
+
+        result = validate_existing_phase14(arguments.phase14_dir)
+    except Exception as exc:
+        print(f"Phase 14 validation BLOCKED: {exc}", file=sys.stderr)
+        return 1
+    if arguments.json:
+        print(json.dumps(result, sort_keys=True, default=str))
+    else:
+        print(f"Phase 14 validation: {result.get('hardening_status', 'BLOCKED')}")
+        for error in result.get("errors", []):
+            print(f"ERROR: {error}")
+        for warning in result.get("warnings", []):
+            print(f"WARNING: {warning}")
+    return 0 if result.get("valid") else 1
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run one supported CLI command."""
 
@@ -1838,6 +1975,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_phase13_calibrate(arguments)
     if arguments.command == "phase13-validate":
         return _run_phase13_validate(arguments)
+    if arguments.command == "phase14-contract-check":
+        return _run_phase14_contract_check(arguments)
+    if arguments.command == "phase14-plan-check":
+        return _run_phase14_plan_check(arguments)
+    if arguments.command == "phase14-analyze":
+        return _run_phase14_analyze(arguments)
+    if arguments.command == "phase14-validate":
+        return _run_phase14_validate(arguments)
     if arguments.command in {"data-profile", "synthetic-audit", "data-quality-check", "phase3-run"}:
         return _run_phase3(arguments)
     parser.error(f"Unsupported command: {arguments.command}")

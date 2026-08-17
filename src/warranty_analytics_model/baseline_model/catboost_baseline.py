@@ -46,8 +46,13 @@ def predict_probabilities(
     model: CatBoostClassifier,
     matrix: pd.DataFrame,
     feature_set: FeatureSetSpec,
+    *,
+    thread_count: int | None = None,
 ) -> np.ndarray:
-    return np.asarray(model.predict_proba(build_pool(matrix, feature_set))[:, 1], dtype="float64")
+    kwargs = {} if thread_count is None else {"thread_count": int(thread_count)}
+    return np.asarray(
+        model.predict_proba(build_pool(matrix, feature_set), **kwargs)[:, 1], dtype="float64"
+    )
 
 
 def save_model(model: CatBoostClassifier, path: Path) -> None:

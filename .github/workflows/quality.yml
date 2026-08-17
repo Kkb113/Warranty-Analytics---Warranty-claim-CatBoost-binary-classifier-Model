@@ -69,3 +69,6 @@ jobs:
       - name: Validate Phase 13 calibration and ensemble contract offline
         run: warranty-model phase13-contract-check
 
+      - name: Validate Phase 14 robustness and error-analysis contract offline
+        run: warranty-model phase14-contract-check
+
