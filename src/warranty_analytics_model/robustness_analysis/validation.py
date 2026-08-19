@@ -340,6 +340,12 @@ def _independent_replay(
         return errors
     try:
         settings = load_robustness_settings(resolved.root)
+        # Keep the replay independent from the runner's persisted results, but
+        # honor the same bounded worker budget for deterministic bootstrap
+        # reconstruction.  ``ThreadPoolExecutor.map`` preserves input order
+        # and every replicate receives a deterministic seed, so parallel replay
+        # changes throughput without changing scientific evidence.
+        replay_workers = max(1, int(getattr(settings, "preferred_bootstrap_workers", 1)))
         train_features = resolved.train_features.sort_values(KEY, kind="mergesort").reset_index(
             drop=True
         )
@@ -485,7 +491,7 @@ def _independent_replay(
             resolved.threshold,
             replicates=settings.overall_replicates,
             seed=settings.seed,
-            workers=1,
+            workers=replay_workers,
             confidence_level=settings.confidence_level,
         )
         errors.extend(
@@ -511,7 +517,7 @@ def _independent_replay(
             resolved.threshold,
             replicates=settings.material_slice_replicates,
             seed=settings.seed,
-            workers=1,
+            workers=replay_workers,
             confidence_level=settings.confidence_level,
             min_positive=settings.min_slice_positives_bootstrap,
             min_negative=settings.min_slice_negatives_ranking,

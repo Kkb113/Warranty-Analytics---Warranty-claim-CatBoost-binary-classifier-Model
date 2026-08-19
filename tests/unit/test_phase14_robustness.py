@@ -6,6 +6,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -854,6 +855,7 @@ def test_independent_validator_replays_full_diagnostic_path(
         lambda *args, **kwargs: SimpleNamespace(
             overall_replicates=2,
             material_slice_replicates=2,
+            preferred_bootstrap_workers=3,
             seed=7,
             confidence_level=0.95,
             min_slice_positives_bootstrap=1,
@@ -907,16 +909,18 @@ def test_independent_validator_replays_full_diagnostic_path(
         validation_module, "build_error_context", lambda *args, **kwargs: pd.DataFrame()
     )
     monkeypatch.setattr(validation_module, "error_profile", lambda *args, **kwargs: pd.DataFrame())
-    monkeypatch.setattr(
-        validation_module,
-        "stratified_bootstrap",
-        lambda *args, **kwargs: ({"replicate_count": 2}, []),
-    )
-    monkeypatch.setattr(
-        validation_module,
-        "material_slice_bootstrap",
-        lambda *args, **kwargs: ({"eligible_slice_count": 0}, []),
-    )
+    replay_workers: list[int] = []
+
+    def replay_bootstrap(*args: Any, **kwargs: Any) -> tuple[dict[str, Any], list[Any]]:
+        replay_workers.append(int(kwargs["workers"]))
+        return {"replicate_count": 2}, []
+
+    def replay_material_bootstrap(*args: Any, **kwargs: Any) -> tuple[dict[str, Any], list[Any]]:
+        replay_workers.append(int(kwargs["workers"]))
+        return {"eligible_slice_count": 0}, []
+
+    monkeypatch.setattr(validation_module, "stratified_bootstrap", replay_bootstrap)
+    monkeypatch.setattr(validation_module, "material_slice_bootstrap", replay_material_bootstrap)
     monkeypatch.setattr(
         validation_module,
         "leakage_recheck",
@@ -964,6 +968,7 @@ def test_independent_validator_replays_full_diagnostic_path(
         plan,
     )
     assert errors == []
+    assert replay_workers == [3, 3]
 
 
 def test_validator_comparison_membership_and_warning_helpers(tmp_path: Path) -> None:
