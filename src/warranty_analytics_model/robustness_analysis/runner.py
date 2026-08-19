@@ -82,6 +82,20 @@ def _write_parquet(frame: pd.DataFrame, path: Path) -> None:
     frame.to_parquet(path, index=False)
 
 
+def _score_in_batches(
+    scorer: Any, frame: pd.DataFrame, *, batch_size: int = 4096
+) -> pd.DataFrame:
+    """Score a frame in bounded batches to cap CatBoost matrix memory."""
+
+    if len(frame) <= batch_size:
+        return scorer(frame)
+    parts = [
+        scorer(frame.iloc[start : start + batch_size])
+        for start in range(0, len(frame), batch_size)
+    ]
+    return pd.concat(parts, ignore_index=True)
+
+
 def _checkpoint_bindings(
     resolved: Phase14Resolved,
     plan: dict[str, Any],
@@ -132,6 +146,45 @@ def _plan_resume_bindings(plan: dict[str, Any]) -> dict[str, Any]:
             "configuration_sha256",
         )
     }
+
+
+def _resume_parent_validation_reusable(work_dir: Path, phase13_dir: Path) -> bool:
+    """Check whether a resume has a previously validated Phase 13 binding.
+
+    Parent validation reconstructs model scores and can exceed the host memory
+    envelope even though the Phase 14 work directory already contains the
+    resulting freeze.  A resume is allowed to reuse that gate only when the
+    freeze, parent-resolution checkpoint, and immutable Phase 13 files still
+    agree byte-for-byte.  Fresh runs always perform the full replay.
+    """
+
+    freeze_path = work_dir / "phase14_analysis_freeze.json"
+    parent_path = work_dir / "phase13_parent_resolution.json"
+    validation_path = phase13_dir / "validation.json"
+    if not (freeze_path.is_file() and parent_path.is_file() and validation_path.is_file()):
+        return False
+    try:
+        freeze = json.loads(freeze_path.read_text(encoding="utf-8"))
+        parent = json.loads(parent_path.read_text(encoding="utf-8"))
+        upstream = json.loads(validation_path.read_text(encoding="utf-8"))
+        if upstream.get("valid") is not True or upstream.get("hardening_status") != "HARDENED_PASS":
+            return False
+        expected = {
+            "phase13_manifest_sha256": sha256_file(phase13_dir / "phase13_manifest.json"),
+            "phase13_validation_sha256": sha256_file(phase13_dir / "validation.json"),
+            "phase13_effective_model_manifest_sha256": sha256_file(
+                phase13_dir / "effective_model_manifest.json"
+            ),
+        }
+        return (
+            all(freeze.get(key) == value for key, value in expected.items())
+            and freeze.get("development_decisions_frozen") is True
+            and freeze.get("validation_targets_accessed") is False
+            and freeze.get("test_targets_accessed") is False
+            and parent.get("phase13_merged_to_main") is True
+        )
+    except (OSError, TypeError, ValueError):
+        return False
 
 
 def _checkpoint_reusable(
@@ -393,17 +446,6 @@ def build_phase14(
         raise Phase14InputError(
             "Phase 14 contract is blocked: " + "; ".join(contract_result.get("errors", []))
         )
-    # Phase 14 is only admissible after the frozen Phase 13 implementation is
-    # reachable from local ``main``.  This prevents a diagnostic artifact from
-    # becoming an implicit acceptance of an unmerged development branch.
-    resolved = resolve_phase13_parent(phase13_dir, project_root=root, require_main_merge=True)
-    plan = build_analysis_plan(resolved, settings)
-    execution = compute_plan(
-        settings,
-        max_workers=max_workers,
-        bootstrap_replicates=bootstrap_replicates,
-        catboost_inference_threads=catboost_inference_threads,
-    )
     output_root = (output_dir or root / "artifacts" / "robustness_analysis").expanduser().resolve()
     report_root = (
         (report_dir or root / "reports" / "phase14_robustness_error_analysis")
@@ -412,13 +454,30 @@ def build_phase14(
     )
     selected_run_id = str(run_id or phase14_run_id())
     final_dir = output_root / selected_run_id
+    work_dir = output_root / f".phase14_{selected_run_id}.work"
     if final_dir.exists():
         raise Phase14InputError(f"Published Phase 14 run is immutable: {final_dir}")
-    work_dir = output_root / f".phase14_{selected_run_id}.work"
     if work_dir.exists() and not resume:
         raise Phase14InputError(
             f"Phase 14 work directory exists; use --resume or another run ID: {work_dir}"
         )
+    # Phase 14 is only admissible after the frozen Phase 13 implementation is
+    # reachable from local ``main``.  This prevents a diagnostic artifact from
+    # becoming an implicit acceptance of an unmerged development branch.
+    reuse_parent_validation = resume and _resume_parent_validation_reusable(work_dir, phase13_dir)
+    resolved = resolve_phase13_parent(
+        phase13_dir,
+        project_root=root,
+        require_main_merge=True,
+        validate_upstream=not reuse_parent_validation,
+    )
+    plan = build_analysis_plan(resolved, settings)
+    execution = compute_plan(
+        settings,
+        max_workers=max_workers,
+        bootstrap_replicates=bootstrap_replicates,
+        catboost_inference_threads=catboost_inference_threads,
+    )
     work_dir.mkdir(parents=True, exist_ok=True)
     checkpoint_dir = work_dir / "checkpoints"
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -466,14 +525,12 @@ def build_phase14(
     # Stage B starts here. The first target access is after the immutable freeze.
     validation_targets, validation_audit = resolved.load_validation_targets()
     validation_features = resolved.validation_features.reset_index(drop=True)
-    train_features = resolved.train_features.reset_index(drop=True)
     validation_targets = validation_targets.sort_values(KEY, kind="mergesort").reset_index(
         drop=True
     )
     validation_features = validation_features.sort_values(KEY, kind="mergesort").reset_index(
         drop=True
     )
-    train_features = train_features.sort_values(KEY, kind="mergesort").reset_index(drop=True)
     if (
         set(validation_targets[KEY]) != set(validation_features[KEY])
         or validation_features[KEY].duplicated().any()
@@ -483,7 +540,7 @@ def build_phase14(
         validation_targets[[KEY, TARGET]].sort_values(KEY, kind="mergesort").to_dict("records")
     )
     scorer = prepare_scorer(resolved, threads=execution["catboost_inference_threads"])
-    validation_scored = scorer(validation_features)
+    validation_scored = _score_in_batches(scorer, validation_features)
     validation_scores = validation_scored[[KEY, "probability"]]
     reproduction = _reproduction(resolved, validation_scores)
     write_json(work_dir / "prediction_reproduction.json", _json_safe(reproduction))
@@ -661,6 +718,9 @@ def build_phase14(
         drift = pd.read_parquet(drift_path)
         drift_summary = json.loads(drift_summary_path.read_text(encoding="utf-8"))
     else:
+        train_features = resolved.train_features.reset_index(drop=True).sort_values(
+            KEY, kind="mergesort"
+        )
         drift = feature_drift(
             train_features, validation_features, list(resolved.feature_names), categorical
         )

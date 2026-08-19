@@ -221,8 +221,17 @@ def resolve_phase13_parent(
     *,
     project_root: Path | None = None,
     require_main_merge: bool = False,
+    validate_upstream: bool = True,
 ) -> Phase14Resolved:
-    """Resolve an explicit accepted Phase 13 run without guessing a run ID."""
+    """Resolve an explicit accepted Phase 13 run without guessing a run ID.
+
+    ``validate_upstream`` is normally left enabled so a fresh Phase 14 run
+    independently reconstructs the immutable Phase 13 acceptance evidence. A
+    resumed run may disable that replay only after the runner has verified a
+    previously written Phase 14 freeze binds the exact same Phase 13 hashes.
+    This keeps resume useful on memory-constrained hosts without weakening the
+    initial scientific gate.
+    """
 
     root = discover_repository_root(project_root or phase13_dir)
     directory = phase13_dir.expanduser().resolve()
@@ -255,7 +264,7 @@ def resolve_phase13_parent(
     phase13_commit = str(manifest.get("git_commit_sha", ""))
     if require_main_merge and not phase13_merged_to_main(root, phase13_commit):
         raise Phase14InputError("Phase 13 implementation is not merged to local main.")
-    upstream = _validate_phase13_once(directory, root)
+    upstream = _validate_phase13_once(directory, root) if validate_upstream else phase13_validation
     if upstream.get("valid") is not True or upstream.get("hardening_status") != "HARDENED_PASS":
         raise Phase14InputError("Phase 13 standalone validation is not HARDENED_PASS.")
     errors = _test_seal(manifest, "Phase 13 manifest") + _test_seal(audit, "Phase 13 target audit")
@@ -269,7 +278,11 @@ def resolve_phase13_parent(
     phase12_dir = Path(str(manifest.get("phase12_dir", "")))
     if not phase12_dir.is_absolute():
         phase12_dir = (root / phase12_dir).resolve()
-    lock = load_phase12_lock(phase12_dir, project_root=root)
+    lock = load_phase12_lock(
+        phase12_dir,
+        project_root=root,
+        validate_phase12=validate_upstream,
+    )
     entries = effective.get("models")
     if not isinstance(entries, list):
         raise Phase14InputError("Phase 13 effective model manifest has no model entries.")
@@ -336,7 +349,10 @@ def resolve_phase13_parent(
         weight = None
         score_space = str(champion_entry.get("score_space", components[0].score_space))
         threshold = float(champion_entry.get("technical_threshold", components[0].threshold))
-    development = lock.phase12_inputs.phase10_inputs.development.copy()
+    # Keep the immutable Phase 12 development frame shared with the lock.  A
+    # full copy here doubles the largest in-memory object before Phase 14 even
+    # begins scoring; all Phase 14 accessors return defensive frame copies.
+    development = lock.phase12_inputs.phase10_inputs.development
     if KEY not in development or "split" not in development:
         raise Phase14InputError("Phase 13 development feature frame is missing controls.")
     if "claim__claim_date" not in development:

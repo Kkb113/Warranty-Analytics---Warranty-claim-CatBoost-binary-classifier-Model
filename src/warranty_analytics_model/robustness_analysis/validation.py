@@ -341,11 +341,24 @@ def _independent_replay(
     try:
         settings = load_robustness_settings(resolved.root)
         # Keep the replay independent from the runner's persisted results, but
-        # honor the same bounded worker budget for deterministic bootstrap
-        # reconstruction.  ``ThreadPoolExecutor.map`` preserves input order
-        # and every replicate receives a deterministic seed, so parallel replay
-        # changes throughput without changing scientific evidence.
-        replay_workers = max(1, int(getattr(settings, "preferred_bootstrap_workers", 1)))
+        # honor the bounded worker budget recorded for this run.  The YAML
+        # preference can be higher than the CLI budget used to create the
+        # artifacts; reusing the recorded value avoids a validator-only memory
+        # spike while deterministic seeds keep the evidence byte-identical.
+        execution = (
+            _read(directory / "compute_manifest.json")
+            if (directory / "compute_manifest.json").is_file()
+            else {}
+        )
+        replay_workers = max(
+            1,
+            int(
+                execution.get(
+                    "bootstrap_workers",
+                    getattr(settings, "preferred_bootstrap_workers", 1),
+                )
+            ),
+        )
         train_features = resolved.train_features.sort_values(KEY, kind="mergesort").reset_index(
             drop=True
         )
