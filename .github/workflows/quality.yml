@@ -72,3 +72,6 @@ jobs:
       - name: Validate Phase 14 robustness and error-analysis contract offline
         run: warranty-model phase14-contract-check
 
+      - name: Validate Phase 15 untouched TEST evaluation contract offline
+        run: warranty-model phase15-contract-check
+

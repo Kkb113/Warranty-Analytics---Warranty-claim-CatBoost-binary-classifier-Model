@@ -526,6 +526,57 @@ def build_parser() -> argparse.ArgumentParser:
     phase14_validate.add_argument(
         "--json", action="store_true", help="Print machine-readable JSON."
     )
+    subparsers.add_parser(
+        "phase15-contract-check",
+        help="Validate the Phase 15 untouched TEST evaluation contract offline.",
+    ).add_argument("--json", action="store_true", help="Print machine-readable JSON.")
+    phase15_plan = subparsers.add_parser(
+        "phase15-plan-check",
+        help="Validate Phase 14 and build the target-independent Phase 15 TEST plan.",
+    )
+    phase15_plan.add_argument(
+        "--phase14-dir", type=Path, required=True, help="Accepted Phase 14 run directory."
+    )
+    phase15_plan.add_argument("--max-workers", type=int, help="Bounded bootstrap workers.")
+    phase15_plan.add_argument(
+        "--catboost-inference-threads", type=int, help="Frozen model inference threads."
+    )
+    phase15_plan.add_argument(
+        "--bootstrap-replicates", type=int, help="Bootstrap replicates; may only increase minimum."
+    )
+    phase15_plan.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
+    phase15_evaluate = subparsers.add_parser(
+        "phase15-evaluate",
+        help="Run the final untouched TEST evaluation using the frozen Phase 14 champion.",
+    )
+    phase15_evaluate.add_argument(
+        "--phase14-dir", type=Path, required=True, help="Accepted Phase 14 run directory."
+    )
+    phase15_evaluate.add_argument(
+        "--output-dir", type=Path, help="Phase 15 artifact root override."
+    )
+    phase15_evaluate.add_argument("--report-dir", type=Path, help="Phase 15 report root override.")
+    phase15_evaluate.add_argument("--run-id", help="Explicit immutable Phase 15 run identifier.")
+    phase15_evaluate.add_argument(
+        "--resume", action="store_true", help="Resume an unpublished run."
+    )
+    phase15_evaluate.add_argument("--max-workers", type=int, help="Bounded bootstrap workers.")
+    phase15_evaluate.add_argument(
+        "--catboost-inference-threads", type=int, help="Frozen model inference threads."
+    )
+    phase15_evaluate.add_argument(
+        "--bootstrap-replicates", type=int, help="Bootstrap replicates; may only increase minimum."
+    )
+    phase15_evaluate.add_argument(
+        "--json", action="store_true", help="Print machine-readable JSON."
+    )
+    phase15_validate = subparsers.add_parser(
+        "phase15-validate", help="Independently validate an existing Phase 15 run."
+    )
+    phase15_validate.add_argument(
+        "--phase15-dir", type=Path, required=True, help="Phase 15 run directory."
+    )
+    phase15_validate.add_argument("--json", action="store_true", help="Print validation JSON.")
     return parser
 
 
@@ -1880,6 +1931,103 @@ def _run_phase14_validate(arguments: argparse.Namespace) -> int:
     return 0 if result.get("valid") else 1
 
 
+def _run_phase15_contract_check(arguments: argparse.Namespace | None = None) -> int:
+    try:
+        from .final_evaluation.contract import phase15_contract_check
+
+        result = phase15_contract_check()
+    except Exception as exc:
+        print(f"Phase 15 contract check BLOCKED: {exc}", file=sys.stderr)
+        return 1
+    if arguments is not None and arguments.json:
+        print(json.dumps(result, sort_keys=True, default=str))
+    else:
+        print(f"Phase 15 contract check: {result.get('status', 'BLOCKED')}")
+        print(f"Contract version: {result.get('contract_version', '-')}")
+        print(f"Contract SHA-256: {result.get('contract_sha256', '-')}")
+        for error in result.get("errors", []):
+            print(f"ERROR: {error}")
+        for warning in result.get("warnings", []):
+            print(f"WARNING: {warning}")
+    return 0 if result.get("valid") else 1
+
+
+def _run_phase15_plan_check(arguments: argparse.Namespace) -> int:
+    try:
+        from .final_evaluation.runner import phase15_plan_check
+
+        result = phase15_plan_check(
+            arguments.phase14_dir,
+            max_workers=arguments.max_workers,
+            catboost_inference_threads=arguments.catboost_inference_threads,
+            bootstrap_replicates=arguments.bootstrap_replicates,
+        )
+    except Exception as exc:
+        print(f"Phase 15 plan check BLOCKED: {exc}", file=sys.stderr)
+        return 1
+    if arguments.json:
+        print(json.dumps(result, sort_keys=True, default=str))
+    else:
+        print(f"Phase 15 plan check: {result.get('status', 'BLOCKED')}")
+        print(f"Phase 14 run: {result.get('phase14_run_id', '-')}")
+        print(f"TEST expected rows: {result.get('test_expected_row_count', 0)}")
+        print(f"TEST targets accessed: {result.get('test_targets_accessed', False)}")
+        for error in result.get("errors", []):
+            print(f"ERROR: {error}")
+        for warning in result.get("warnings", []):
+            print(f"WARNING: {warning}")
+    return 0 if result.get("valid") else 1
+
+
+def _run_phase15_evaluate(arguments: argparse.Namespace) -> int:
+    try:
+        from .final_evaluation.runner import build_phase15
+
+        result = build_phase15(
+            arguments.phase14_dir,
+            output_dir=arguments.output_dir,
+            report_dir=arguments.report_dir,
+            run_id=arguments.run_id,
+            resume=arguments.resume,
+            max_workers=arguments.max_workers,
+            bootstrap_replicates=arguments.bootstrap_replicates,
+            catboost_inference_threads=arguments.catboost_inference_threads,
+        )
+    except Exception as exc:
+        print(f"Phase 15 evaluation BLOCKED: {exc}", file=sys.stderr)
+        return 1
+    if arguments.json:
+        print(json.dumps(result, sort_keys=True, default=str))
+    else:
+        print(f"Phase 15 final status: {result.get('status', 'BLOCKED')}")
+        print(f"Run directory: {result.get('run_directory', '-')}")
+        print(f"Report directory: {result.get('report_directory', '-')}")
+        for error in result.get("validation", {}).get("errors", []):
+            print(f"ERROR: {error}")
+        for warning in result.get("validation", {}).get("warnings", []):
+            print(f"WARNING: {warning}")
+    return 0 if result.get("validation", {}).get("valid") else 1
+
+
+def _run_phase15_validate(arguments: argparse.Namespace) -> int:
+    try:
+        from .final_evaluation.validation import validate_existing_phase15
+
+        result = validate_existing_phase15(arguments.phase15_dir)
+    except Exception as exc:
+        print(f"Phase 15 validation BLOCKED: {exc}", file=sys.stderr)
+        return 1
+    if arguments.json:
+        print(json.dumps(result, sort_keys=True, default=str))
+    else:
+        print(f"Phase 15 validation: {result.get('status', 'BLOCKED')}")
+        for error in result.get("errors", []):
+            print(f"ERROR: {error}")
+        for warning in result.get("warnings", []):
+            print(f"WARNING: {warning}")
+    return 0 if result.get("valid") else 1
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run one supported CLI command."""
 
@@ -1983,6 +2131,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_phase14_analyze(arguments)
     if arguments.command == "phase14-validate":
         return _run_phase14_validate(arguments)
+    if arguments.command == "phase15-contract-check":
+        return _run_phase15_contract_check(arguments)
+    if arguments.command == "phase15-plan-check":
+        return _run_phase15_plan_check(arguments)
+    if arguments.command == "phase15-evaluate":
+        return _run_phase15_evaluate(arguments)
+    if arguments.command == "phase15-validate":
+        return _run_phase15_validate(arguments)
     if arguments.command in {"data-profile", "synthetic-audit", "data-quality-check", "phase3-run"}:
         return _run_phase3(arguments)
     parser.error(f"Unsupported command: {arguments.command}")
