@@ -82,16 +82,13 @@ def _write_parquet(frame: pd.DataFrame, path: Path) -> None:
     frame.to_parquet(path, index=False)
 
 
-def _score_in_batches(
-    scorer: Any, frame: pd.DataFrame, *, batch_size: int = 4096
-) -> pd.DataFrame:
+def _score_in_batches(scorer: Any, frame: pd.DataFrame, *, batch_size: int = 4096) -> pd.DataFrame:
     """Score a frame in bounded batches to cap CatBoost matrix memory."""
 
     if len(frame) <= batch_size:
         return scorer(frame)
     parts = [
-        scorer(frame.iloc[start : start + batch_size])
-        for start in range(0, len(frame), batch_size)
+        scorer(frame.iloc[start : start + batch_size]) for start in range(0, len(frame), batch_size)
     ]
     return pd.concat(parts, ignore_index=True)
 
