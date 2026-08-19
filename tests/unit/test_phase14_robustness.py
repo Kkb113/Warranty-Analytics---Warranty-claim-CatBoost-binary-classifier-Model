@@ -214,6 +214,22 @@ def test_material_slice_bootstrap_and_error_context() -> None:
     )
     assert summary["eligible_slice_count"] >= 1
     assert len(rows) == summary["eligible_slice_count"] * 3
+    parallel_summary, parallel_rows = material_slice_bootstrap(
+        slices,
+        definitions,
+        frame,
+        y,
+        probabilities,
+        0.5,
+        replicates=3,
+        seed=7,
+        workers=2,
+        confidence_level=0.95,
+        min_positive=1,
+        min_negative=1,
+    )
+    assert parallel_summary == summary
+    assert parallel_rows == rows
     context = build_error_context(frame, definitions, probabilities, ("f_num", "f_cat"))
     profile = error_profile(error_cohorts(frame[KEY], y, probabilities, 0.5), context)
     assert {"aggregate", "numeric_summary", "categorical_cohort"}.issubset(

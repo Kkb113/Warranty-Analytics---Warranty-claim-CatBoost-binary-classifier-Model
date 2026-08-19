@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from typing import Any
 
 import numpy as np
@@ -135,6 +135,54 @@ def stratified_bootstrap(
     return summary, rows
 
 
+def _material_slice_bootstrap_one(
+    payload: tuple[
+        int,
+        str,
+        str,
+        np.ndarray,
+        np.ndarray,
+        float,
+        int,
+        int,
+        float,
+    ],
+) -> tuple[str, dict[str, Any], list[dict[str, Any]]]:
+    """Bootstrap one frozen slice in a process-safe, deterministic worker."""
+
+    (
+        _index,
+        slice_id,
+        slice_label,
+        slice_y,
+        slice_p,
+        threshold,
+        child_seed,
+        replicates,
+        confidence_level,
+    ) = payload
+    summary, replicate_rows = stratified_bootstrap(
+        slice_y,
+        slice_p,
+        threshold,
+        replicates=replicates,
+        seed=child_seed,
+        workers=1,
+        confidence_level=confidence_level,
+    )
+    key = f"{slice_id}::{slice_label}"
+    summary_payload = {
+        "slice_id": slice_id,
+        "slice_label": slice_label,
+        "row_count": int(len(slice_y)),
+        "positive_count": int(slice_y.sum()),
+        "negative_count": int((slice_y == 0).sum()),
+        "seed": child_seed,
+        "summary": summary,
+    }
+    return key, summary_payload, replicate_rows
+
+
 def material_slice_bootstrap(
     slices: pd.DataFrame,
     definitions: list[dict[str, Any]],
@@ -167,50 +215,40 @@ def material_slice_bootstrap(
     rows: list[dict[str, Any]] = []
     summaries: dict[str, Any] = {}
     seeds = np.random.SeedSequence(int(seed)).spawn(len(selected))
-    selected_records = list(selected.iterrows())
-
-    def run_one(
-        item: tuple[int, tuple[Any, pd.Series]],
-    ) -> tuple[str, dict[str, Any], list[dict[str, Any]]]:
-        index, (_, slice_row) = item
+    score_series = pd.Series(p, index=frame.index)
+    selected_records: list[
+        tuple[int, str, str, np.ndarray, np.ndarray, float, int, int, float]
+    ] = []
+    for index, (_, slice_row) in enumerate(selected.iterrows()):
         slice_id = str(slice_row["slice_id"])
         slice_label = str(slice_row["slice_label"])
         definition = definition_by_id.get(slice_id)
         if definition is None:
             raise ValueError(f"Material slice definition is missing: {slice_id}")
-        membership = membership_for_definition(
-            definition, frame, scores=pd.Series(p, index=frame.index)
-        ).astype(str)
+        membership = membership_for_definition(definition, frame, scores=score_series).astype(str)
         mask = membership.to_numpy() == slice_label
         child_seed = int(seeds[index].generate_state(1, dtype=np.uint64)[0])
-        summary, replicate_rows = stratified_bootstrap(
-            y[mask],
-            p[mask],
-            threshold,
-            replicates=int(replicates),
-            seed=child_seed,
-            # Parallelism is applied across slices here; nested worker pools
-            # would oversubscribe the bounded Phase 14 CPU budget.
-            workers=1,
-            confidence_level=confidence_level,
+        selected_records.append(
+            (
+                index,
+                slice_id,
+                slice_label,
+                y[mask].copy(),
+                p[mask].copy(),
+                float(threshold),
+                child_seed,
+                int(replicates),
+                float(confidence_level),
+            )
         )
-        key = f"{slice_id}::{slice_label}"
-        summary_payload = {
-            "slice_id": slice_id,
-            "slice_label": slice_label,
-            "row_count": int(mask.sum()),
-            "positive_count": int(y[mask].sum()),
-            "negative_count": int((y[mask] == 0).sum()),
-            "seed": child_seed,
-            "summary": summary,
-        }
-        return key, summary_payload, replicate_rows
 
     if int(workers) > 1 and selected_records:
-        with ThreadPoolExecutor(max_workers=min(int(workers), len(selected_records))) as executor:
-            results = list(executor.map(run_one, enumerate(selected_records)))
+        # Metric computation is Python-heavy.  Process workers avoid the GIL,
+        # while map() preserves frozen slice order and all seeds are explicit.
+        with ProcessPoolExecutor(max_workers=min(int(workers), len(selected_records))) as executor:
+            results = list(executor.map(_material_slice_bootstrap_one, selected_records))
     else:
-        results = [run_one(item) for item in enumerate(selected_records)]
+        results = [_material_slice_bootstrap_one(item) for item in selected_records]
     for key, summary_payload, replicate_rows in results:
         summaries[key] = summary_payload
         rows.extend(
