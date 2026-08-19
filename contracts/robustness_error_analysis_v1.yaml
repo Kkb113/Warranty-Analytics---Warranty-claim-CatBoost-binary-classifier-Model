@@ -1,0 +1,23 @@
+phase14_robustness_error_analysis:
+  version: phase14_robustness_error_analysis_v1
+  phase: 14
+  required_phase13_status: HARDENED_PASS
+  model_retraining: prohibited
+  feature_changes: prohibited
+  hyperparameter_retuning: prohibited
+  class_weight_changes: prohibited
+  calibration_changes: prohibited
+  ensemble_changes: prohibited
+  threshold_reoptimization: prohibited
+  model_reselection: prohibited
+  validation_use: DIAGNOSTIC_ONLY
+  slice_definition_target_access: PROHIBITED
+  bootstrap:
+    seed: 20260810
+    overall_replicates: 2000
+    material_slice_replicates: 1000
+    confidence_level: 0.95
+    method: STRATIFIED_PERCENTILE
+  prediction_tolerance: 1.0e-10
+  test:
+    forbidden_until_phase: 15

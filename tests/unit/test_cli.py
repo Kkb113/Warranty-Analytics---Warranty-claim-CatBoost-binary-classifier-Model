@@ -166,3 +166,91 @@ def test_cli_phase9_commands_route_and_render(
     output = capsys.readouterr().out
     assert "Development champion: E3" in output
     assert "Phase 9 validation: PASS" in output
+
+
+def test_cli_phase14_commands_route_and_render(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path
+) -> None:
+    """Phase 14 commands expose contract, plan, analysis, and validation outcomes."""
+
+    monkeypatch.setattr(
+        "warranty_analytics_model.robustness_analysis.contract.phase14_contract_check",
+        lambda: {
+            "status": "PASS",
+            "valid": True,
+            "contract_version": "phase14_robustness_error_analysis_v1",
+            "contract_sha256": "sha",
+            "errors": [],
+            "warnings": [],
+        },
+    )
+    assert main(["phase14-contract-check"]) == 0
+    assert main(["phase14-contract-check", "--json"]) == 0
+
+    monkeypatch.setattr(
+        "warranty_analytics_model.robustness_analysis.runner.phase14_plan_check",
+        lambda _path: {
+            "status": "PASS",
+            "valid": True,
+            "phase13_run_id": "P13",
+            "phase13_development_champion": "C1",
+            "validation_targets_accessed": False,
+            "errors": [],
+            "warnings": [],
+        },
+    )
+    assert main(["phase14-plan-check", "--phase13-dir", str(tmp_path)]) == 0
+    assert main(["phase14-plan-check", "--phase13-dir", str(tmp_path), "--json"]) == 0
+
+    monkeypatch.setattr(
+        "warranty_analytics_model.robustness_analysis.runner.build_phase14",
+        lambda *args, **kwargs: {
+            "hardening_status": "HARDENED_PASS",
+            "run_directory": str(tmp_path / "phase14"),
+            "phase15_readiness": {"status": "READY"},
+            "phase13_development_champion": "C1",
+            "warnings": [],
+            "validation": {"valid": True},
+        },
+    )
+    assert (
+        main(
+            [
+                "phase14-analyze",
+                "--phase13-dir",
+                str(tmp_path),
+                "--output-dir",
+                str(tmp_path / "out"),
+                "--report-dir",
+                str(tmp_path / "reports"),
+                "--run-id",
+                "R1",
+                "--resume",
+                "--max-workers",
+                "2",
+                "--bootstrap-replicates",
+                "2000",
+                "--catboost-inference-threads",
+                "2",
+            ]
+        )
+        == 0
+    )
+    assert main(["phase14-analyze", "--phase13-dir", str(tmp_path), "--json"]) == 0
+
+    monkeypatch.setattr(
+        "warranty_analytics_model.robustness_analysis.validation.validate_existing_phase14",
+        lambda _path: {
+            "hardening_status": "HARDENED_PASS",
+            "valid": True,
+            "errors": [],
+            "warnings": [],
+        },
+    )
+    assert main(["phase14-validate", "--phase14-dir", str(tmp_path)]) == 0
+    assert main(["phase14-validate", "--phase14-dir", str(tmp_path), "--json"]) == 0
+
+    output = capsys.readouterr().out
+    assert "Phase 14 contract check: PASS" in output
+    assert "Phase 14 status: HARDENED_PASS" in output
+    assert "Phase 14 validation: HARDENED_PASS" in output

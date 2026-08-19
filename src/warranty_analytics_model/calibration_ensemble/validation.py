@@ -395,6 +395,10 @@ def _reconstruct_outer_validation(
             load_model(lock.phase12_dir / str(lock.effective_models[track]["model_file"])),
             adapt_matrix(validation_frame, feature_set, baseline_settings),
             feature_set,
+            # Parent validation is an acceptance gate invoked by later phases;
+            # keep its native inference bounded so a default CatBoost thread
+            # fan-out cannot exhaust the host while reproducing frozen scores.
+            thread_count=1,
         )
         keys = validation_frame[KEY].astype(int).to_numpy()
         y = validation_frame[KEY].map(target_map).astype("int8").to_numpy()

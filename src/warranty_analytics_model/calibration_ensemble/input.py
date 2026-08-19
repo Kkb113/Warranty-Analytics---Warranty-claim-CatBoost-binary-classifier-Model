@@ -183,6 +183,7 @@ def load_phase12_lock(
     phase12_dir: Path,
     *,
     project_root: Path | None = None,
+    validate_phase12: bool = True,
 ) -> Phase12Lock:
     directory = phase12_dir.expanduser().resolve()
     # A caller may provide only the immutable Phase 12 artifact directory.  In
@@ -224,12 +225,13 @@ def load_phase12_lock(
         raise CalibrationEnsembleError(
             "Accepted Phase 12 freeze is missing its validation-access seal."
         )
-    upstream_result = validate_existing_phase12(directory, project_root=root)
-    if (
-        upstream_result.get("valid") is not True
-        or upstream_result.get("hardening_status") != "HARDENED_PASS"
-    ):
-        raise CalibrationEnsembleError("Phase 12 standalone validator did not pass.")
+    if validate_phase12:
+        upstream_result = validate_existing_phase12(directory, project_root=root)
+        if (
+            upstream_result.get("valid") is not True
+            or upstream_result.get("hardening_status") != "HARDENED_PASS"
+        ):
+            raise CalibrationEnsembleError("Phase 12 standalone validator did not pass.")
     phase11_run_id = str(
         phase12_manifest.get("phase11_run_id") or parent_resolution.get("phase11_run_id", "")
     )

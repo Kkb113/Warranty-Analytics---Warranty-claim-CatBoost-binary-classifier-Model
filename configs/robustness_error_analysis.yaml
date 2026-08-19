@@ -1,0 +1,46 @@
+phase14_robustness_error_analysis:
+  seed: 20260810
+  support:
+    min_slice_rows: 75
+    min_slice_positives_ranking: 5
+    min_slice_negatives_ranking: 20
+    min_slice_positives_bootstrap: 8
+  bootstrap:
+    overall_replicates: 2000
+    material_slice_replicates: 1000
+    confidence_level: 0.95
+    method: stratified_percentile
+  temporal:
+    calendar_month: true
+    calendar_quarter: true
+    chronological_thirds: true
+  categorical:
+    top_train_categories: 10
+    include_other: true
+    include_missing: true
+  numeric:
+    train_quantiles: [0.0, 0.25, 0.50, 0.75, 1.0]
+  score_deciles:
+    boundaries_from: TRAIN_OOF
+    count: 10
+  top_k: [0.05, 0.10, 0.20, 0.30]
+  threshold_sensitivity:
+    diagnostic_only: true
+    multipliers: [0.80, 0.90, 1.00, 1.10, 1.20]
+  drift:
+    psi_low: 0.10
+    psi_high: 0.25
+    missingness_material_delta: 0.05
+    missingness_high_delta: 0.10
+  invariance:
+    probability_absolute_tolerance: 1.0e-10
+    batch_sizes: [17, 64, 256]
+  signal_gate:
+    minimum_ap_over_prevalence: 0.000001
+    minimum_roc_auc: 0.50
+  compute:
+    reserve_logical_threads: 2
+    preferred_bootstrap_workers: 8
+    preferred_catboost_inference_threads: 16
+  checkpoint: true
+  resume_supported: true
