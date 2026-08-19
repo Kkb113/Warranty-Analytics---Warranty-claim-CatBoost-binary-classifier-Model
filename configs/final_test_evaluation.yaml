@@ -1,0 +1,38 @@
+phase15_final_test_evaluation:
+  seed: 20260810
+  model:
+    policy: REUSE_FROZEN_PHASE14_CHAMPION
+    retraining: false
+    train_validation_refit: false
+  test:
+    one_frozen_scoring_policy: true
+    model_selection_prohibited: true
+    threshold_tuning_prohibited: true
+    calibration_tuning_prohibited: true
+    ensemble_tuning_prohibited: true
+    feature_selection_prohibited: true
+  bootstrap:
+    replicates: 2000
+    confidence_level: 0.95
+    method: stratified_percentile
+  top_k:
+    - 0.05
+    - 0.1
+    - 0.2
+    - 0.3
+  invariance:
+    probability_tolerance: 1.0e-10
+    batch_sizes:
+      - 17
+      - 64
+      - 256
+  generalization:
+    moderate_ap_ratio: 0.75
+    moderate_roc_drop: 0.1
+    random_roc: 0.5
+  compute:
+    reserve_logical_threads: 2
+    preferred_bootstrap_workers: 8
+    preferred_catboost_inference_threads: 16
+  checkpoint: true
+  resume_supported: true
