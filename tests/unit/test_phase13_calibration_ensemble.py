@@ -367,7 +367,7 @@ def test_stage_a_calibration_ensemble_and_threshold_artifacts(monkeypatch, tmp_p
     monkeypatch.setattr(
         phase13_validation,
         "predict_probabilities",
-        lambda _model, matrix, _features: np.clip(
+        lambda _model, matrix, _features, **_kwargs: np.clip(
             matrix["warranty_claim_key"].to_numpy() / 35.0, 0.01, 0.99
         ),
     )
